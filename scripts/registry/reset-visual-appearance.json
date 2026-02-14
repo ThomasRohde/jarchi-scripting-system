@@ -1,0 +1,28 @@
+{
+  "id": "cleanup.reset_visual_appearance",
+  "title": "Reset Visual Appearance",
+  "category": ["Cleanup"],
+  "order": 20,
+
+  "script": {
+    "path": "Reset Visual Appearance.ajs"
+  },
+
+  "description": "Resets fill color, font color, font, line color, and opacity of selected diagram objects (or all objects in the active view) back to their defaults.",
+  "tags": ["cleanup", "appearance", "color", "reset", "style"],
+
+  "help": {
+    "markdown_path": ""
+  },
+
+  "run": {
+    "danger_level": "medium",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": ["diagram-object", "diagram-connection", "view"],
+    "min": 0,
+    "require_view": true
+  }
+}

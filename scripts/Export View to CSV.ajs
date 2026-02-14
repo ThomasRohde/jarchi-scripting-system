@@ -1,0 +1,127 @@
+/**
+ * @name Export View to CSV
+ * @description Exports elements and relationships from the active view to a CSV file.
+ * Creates two CSV files: one for elements (name, type, documentation) and
+ * one for relationships (source, type, target, name).
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+
+(function () {
+    "use strict";
+
+    var FileWriter = Java.type("java.io.FileWriter");
+    var BufferedWriter = Java.type("java.io.BufferedWriter");
+    var File = Java.type("java.io.File");
+
+    /**
+     * Escape a value for CSV output.
+     * Wraps in quotes if the value contains commas, quotes, or newlines.
+     */
+    function csvEscape(value) {
+        if (value === null || value === undefined) return "";
+        var str = String(value);
+        if (str.indexOf(",") !== -1 || str.indexOf('"') !== -1 || str.indexOf("\n") !== -1) {
+            return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+    }
+
+    /**
+     * Write an array of rows to a CSV file.
+     * Each row is an array of string values.
+     */
+    function writeCsv(filePath, headers, rows) {
+        var writer = new BufferedWriter(new FileWriter(filePath));
+        try {
+            writer.write(headers.map(csvEscape).join(","));
+            writer.newLine();
+            for (var i = 0; i < rows.length; i++) {
+                writer.write(rows[i].map(csvEscape).join(","));
+                writer.newLine();
+            }
+        } finally {
+            writer.close();
+        }
+    }
+
+    try {
+        requireModel();
+        log.header("Export View to CSV");
+
+        // Get the active view (menu context → selection → active editor)
+        var view = resolveSelection.activeView();
+        if (!view) {
+            window.alert("Please select a view in the model tree or open a view.");
+            return;
+        }
+
+        var viewName = view.name && view.name.trim() ? view.name : "unnamed-view";
+        log.info("Exporting view: " + viewName);
+
+        // Prompt for output directory
+        var outputDir = window.promptOpenDirectory({
+            title: "Select output directory for CSV files"
+        });
+        if (!outputDir) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // Sanitize view name for filename
+        var safeName = viewName.replace(/[^a-zA-Z0-9_\- ]/g, "_").replace(/\s+/g, "_");
+
+        // Collect elements
+        var elementRows = [];
+        var seenElements = {};
+
+        $(view).find("element").each(function (diagramObj) {
+            var concept = diagramObj.concept;
+            if (!concept || seenElements[concept.id]) return;
+            seenElements[concept.id] = true;
+
+            var name = concept.name && concept.name.trim() ? concept.name : "";
+            var doc = concept.documentation || "";
+            elementRows.push([name, concept.type, concept.id, doc]);
+        });
+
+        // Collect relationships
+        var relRows = [];
+        var seenRels = {};
+
+        $(view).find("relationship").each(function (diagramConn) {
+            var concept = diagramConn.concept;
+            if (!concept || seenRels[concept.id]) return;
+            seenRels[concept.id] = true;
+
+            var sourceName = concept.source ? (concept.source.name || "") : "";
+            var targetName = concept.target ? (concept.target.name || "") : "";
+            var relName = concept.name || "";
+            relRows.push([sourceName, concept.type, targetName, relName, concept.id]);
+        });
+
+        // Write elements CSV
+        var elemPath = outputDir + File.separator + safeName + "_elements.csv";
+        writeCsv(elemPath, ["Name", "Type", "ID", "Documentation"], elementRows);
+        log.detail("  Elements: " + elemPath);
+
+        // Write relationships CSV
+        var relPath = outputDir + File.separator + safeName + "_relationships.csv";
+        writeCsv(relPath, ["Source", "Type", "Target", "Name", "ID"], relRows);
+        log.detail("  Relationships: " + relPath);
+
+        log.success("Exported " + elementRows.length + " elements and " + relRows.length + " relationships.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

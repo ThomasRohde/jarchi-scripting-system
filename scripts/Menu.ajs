@@ -1,0 +1,81 @@
+/**
+ * @name Script Menu
+ * @description Launcher UI for discovering, searching, and running JArchi scripts.
+ * Opens a dialog with a category tree, fuzzy search, details pane, and
+ * Markdown help browser. Scripts are registered via JSON files in the
+ * registry/ directory.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+// Clear menu modules so load() picks up latest code
+["menuConfig", "registryScanner", "categoryTree", "fuzzySearch",
+ "selectionGating", "menuContext", "markdownRenderer", "menuDialog"].forEach(function (m) {
+    globalThis[m] = undefined;
+});
+
+// Load dependencies in order
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/menu/menuConfig.js");
+load(__DIR__ + "lib/menu/registryScanner.js");
+load(__DIR__ + "lib/menu/categoryTree.js");
+load(__DIR__ + "lib/menu/fuzzySearch.js");
+load(__DIR__ + "lib/menu/selectionGating.js");
+load(__DIR__ + "lib/menu/menuContext.js");
+load(__DIR__ + "vendor/marked/marked-sync.js");
+load(__DIR__ + "lib/menu/markdownRenderer.js");
+load(__DIR__ + "lib/menu/menuDialog.js");
+
+(function () {
+    "use strict";
+
+    try {
+        log.header("Script Menu");
+
+        // Resolve paths
+        menuConfig.resolve(__DIR__);
+
+        // Show the menu dialog
+        var descriptor = showMenuDialog(shell);
+
+        if (!descriptor) {
+            log.detail("  Cancelled by user.");
+            return;
+        }
+
+        log.info("Running: " + descriptor.title + " (" + descriptor.id + ")");
+
+        // Capture selection and set context
+        var selInfo = selectionGating.captureSelection();
+        menuContext.set(descriptor, selInfo);
+
+        try {
+            // Resolve and execute the script
+            var scriptsRoot = menuConfig.getScriptsRoot();
+            var scriptPath = scriptsRoot + descriptor.script.path;
+            load(scriptPath);
+
+            log.success("Script Menu: '" + descriptor.title + "' completed.");
+        } catch (scriptError) {
+            log.error("Script '" + descriptor.title + "' failed: " + scriptError.toString());
+            if (scriptError.stack) {
+                log.error(scriptError.stack);
+            }
+            window.alert("Script Error: " + descriptor.title + "\n\n" + scriptError.message);
+        } finally {
+            menuContext.clear();
+        }
+
+    } catch (error) {
+        log.error("Script Menu failed: " + error.toString());
+        if (error.stack) {
+            log.error(error.stack);
+        }
+        window.alert("Script Menu Error:\n" + error.message);
+    }
+})();

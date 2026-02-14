@@ -1,0 +1,119 @@
+/**
+ * @name Set Property
+ * @description Batch-set a property on all selected elements. Prompts for
+ * property name and value, then applies to every selected element.
+ * Can also remove a property by leaving the value empty.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+
+(function () {
+    "use strict";
+
+    try {
+        requireModel();
+        log.header("Set Property");
+
+        // =================================================================
+        // Get selected elements
+        // =================================================================
+
+        var elements = resolveSelection.selectedConcepts("element");
+        if (elements.size() === 0) {
+            elements = resolveSelection.selectedConcepts("relationship");
+        }
+        if (elements.size() === 0) {
+            window.alert("Please select one or more elements or relationships.");
+            return;
+        }
+
+        log.info("Selected " + elements.size() + " item(s).");
+
+        // =================================================================
+        // Collect existing property names for reference
+        // =================================================================
+
+        var existingProps = {};
+        elements.each(function (el) {
+            var props = el.prop();
+            if (props) {
+                for (var i = 0; i < props.length; i++) {
+                    existingProps[props[i]] = true;
+                }
+            }
+        });
+
+        var propList = Object.keys(existingProps).sort();
+        var hint = propList.length > 0
+            ? "Existing properties: " + propList.join(", ")
+            : "No existing properties on selected items.";
+
+        // =================================================================
+        // Prompt for property name and value
+        // =================================================================
+
+        var propName = window.prompt("Property name to set:\n\n" + hint, "");
+        if (propName === null || propName.trim() === "") {
+            log.warn("Cancelled — no property name provided.");
+            return;
+        }
+        propName = propName.trim();
+
+        var propValue = window.prompt(
+            "Value for \"" + propName + "\":\n\n(Leave empty to remove the property)",
+            ""
+        );
+        if (propValue === null) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        var removing = propValue === "";
+
+        // =================================================================
+        // Confirm
+        // =================================================================
+
+        var action = removing
+            ? "Remove property \"" + propName + "\" from " + elements.size() + " item(s)?"
+            : "Set \"" + propName + "\" = \"" + propValue + "\" on " + elements.size() + " item(s)?";
+
+        if (!window.confirm(action)) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // =================================================================
+        // Apply
+        // =================================================================
+
+        var modified = 0;
+
+        elements.each(function (el) {
+            if (removing) {
+                el.prop(propName, null);
+            } else {
+                el.prop(propName, propValue);
+            }
+            modified++;
+        });
+
+        if (removing) {
+            log.success("Removed property \"" + propName + "\" from " + modified + " items.");
+        } else {
+            log.success("Set \"" + propName + "\" = \"" + propValue + "\" on " + modified + " items.");
+        }
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

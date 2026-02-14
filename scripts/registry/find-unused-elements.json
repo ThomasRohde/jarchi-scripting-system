@@ -1,0 +1,28 @@
+{
+  "id": "analysis.find_unused_elements",
+  "title": "Find Unused Elements",
+  "category": ["Analysis"],
+  "order": 10,
+
+  "script": {
+    "path": "Find Unused Elements.ajs"
+  },
+
+  "description": "Scans the model for elements not placed on any view. Lists orphaned elements grouped by type, helping identify candidates for cleanup.",
+  "tags": ["analysis", "unused", "orphan", "cleanup", "model-health"],
+
+  "help": {
+    "markdown_path": "../help/find-unused-elements.md"
+  },
+
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

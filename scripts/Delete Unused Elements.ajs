@@ -1,0 +1,92 @@
+/**
+ * @name Delete Unused Elements
+ * @description Finds and deletes elements that are not placed on any view.
+ * Also removes relationships connected only to unused elements.
+ * Shows a confirmation dialog before deleting.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    try {
+        requireModel();
+        log.header("Delete Unused Elements");
+
+        // Find unused elements
+        var unused = [];
+        var totalElements = 0;
+
+        $("element").each(function (element) {
+            totalElements++;
+            if ($(element).viewRefs().size() === 0) {
+                unused.push(element);
+            }
+        });
+
+        if (unused.length === 0) {
+            log.success("No unused elements found. All " + totalElements + " elements are on at least one view.");
+            return;
+        }
+
+        // Build type summary for the confirmation message
+        var byType = {};
+        for (var i = 0; i < unused.length; i++) {
+            var type = unused[i].type;
+            byType[type] = (byType[type] || 0) + 1;
+        }
+
+        var summary = "Found " + unused.length + " unused elements:\n\n";
+        var types = Object.keys(byType).sort();
+        for (var t = 0; t < types.length; t++) {
+            summary += "  " + types[t] + ": " + byType[types[t]] + "\n";
+        }
+        summary += "\nDelete them? (This also removes their relationships.)";
+
+        if (!window.confirm(summary)) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        log.info("Deleting " + unused.length + " elements...");
+
+        // Find relationships that connect to unused elements
+        var unusedIds = {};
+        for (var i = 0; i < unused.length; i++) {
+            unusedIds[unused[i].id] = true;
+        }
+
+        var relsToDelete = [];
+        $("relationship").each(function (rel) {
+            if (unusedIds[rel.source.id] || unusedIds[rel.target.id]) {
+                relsToDelete.push(rel);
+            }
+        });
+
+        // Delete relationships first
+        for (var r = 0; r < relsToDelete.length; r++) {
+            relsToDelete[r].delete();
+        }
+
+        // Delete unused elements
+        var deletedCount = 0;
+        for (var i = 0; i < unused.length; i++) {
+            unused[i].delete();
+            deletedCount++;
+        }
+
+        log.success("Deleted " + deletedCount + " elements and " + relsToDelete.length + " relationships.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

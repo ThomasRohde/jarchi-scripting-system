@@ -1,0 +1,28 @@
+{
+  "id": "layout.elk_graph_layout",
+  "title": "ELK Graph Layout",
+  "category": ["Layout"],
+  "order": 10,
+
+  "script": {
+    "path": "ELK Layout.ajs"
+  },
+
+  "description": "Automatic graph layout using the ELK (Eclipse Layout Kernel) engine. Provides a comprehensive options dialog for configuring layout algorithm, spacing, edge routing, port constraints, and more.",
+  "tags": ["layout", "elk", "auto-layout", "graph", "diagram"],
+
+  "help": {
+    "markdown_path": "../help/elk-layout.md"
+  },
+
+  "run": {
+    "danger_level": "medium",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": ["view"],
+    "min": 0,
+    "require_view": true
+  }
+}

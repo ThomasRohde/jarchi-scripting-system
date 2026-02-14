@@ -1,0 +1,28 @@
+{
+  "id": "analysis.element_usage_map",
+  "title": "Element Usage Map",
+  "category": ["Analysis"],
+  "order": 30,
+
+  "script": {
+    "path": "Element Usage Map.ajs"
+  },
+
+  "description": "Shows where selected elements (or all elements) are used across views. Lists every view containing a visual reference for each element. Useful for impact analysis.",
+  "tags": ["analysis", "usage", "views", "impact", "where-used"],
+
+  "help": {
+    "markdown_path": ""
+  },
+
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": ["element"],
+    "min": 0,
+    "require_view": false
+  }
+}

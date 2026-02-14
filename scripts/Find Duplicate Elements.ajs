@@ -1,0 +1,263 @@
+/**
+ * @name Find Duplicate Elements
+ * @description Scans the model for elements that share the same name and type.
+ * Displays groups of duplicates in a sortable table, helping identify
+ * candidates for merging.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var Color = swtImports.Color;
+    var Display = swtImports.Display;
+
+    try {
+        requireModel();
+        log.header("Find Duplicate Elements");
+
+        // =================================================================
+        // Scan for duplicates
+        // =================================================================
+
+        var groups = {};  // key: "type|name" → array of elements
+        var totalElements = 0;
+
+        $("element").each(function (element) {
+            totalElements++;
+            var name = element.name && element.name.trim() ? element.name.trim() : "";
+            if (name === "") return;  // Skip unnamed elements
+
+            var key = element.type + "|" + name.toLowerCase();
+            if (!groups[key]) {
+                groups[key] = [];
+            }
+            groups[key].push({
+                type: element.type,
+                name: element.name,
+                id: element.id,
+                views: $(element).viewRefs().size(),
+                rels: $(element).rels().size()
+            });
+        });
+
+        // Filter to only groups with duplicates
+        var duplicates = [];
+        var groupCount = 0;
+        var keys = Object.keys(groups);
+        for (var k = 0; k < keys.length; k++) {
+            var group = groups[keys[k]];
+            if (group.length > 1) {
+                groupCount++;
+                for (var i = 0; i < group.length; i++) {
+                    group[i].groupSize = group.length;
+                    duplicates.push(group[i]);
+                }
+            }
+        }
+
+        if (duplicates.length === 0) {
+            log.success("No duplicate elements found among " + totalElements + " elements.");
+            MessageDialog.openInformation(shell, "Find Duplicate Elements",
+                "No duplicate elements found.\n\nAll " + totalElements + " element names are unique within their type.");
+            return;
+        }
+
+        // Sort by type, name, then views descending
+        duplicates.sort(function (a, b) {
+            var tc = a.type.localeCompare(b.type);
+            if (tc !== 0) return tc;
+            var nc = a.name.localeCompare(b.name);
+            if (nc !== 0) return nc;
+            return b.views - a.views;  // Most-used first within group
+        });
+
+        log.info("Found " + groupCount + " groups of duplicates (" + duplicates.length + " elements).");
+
+        // =================================================================
+        // Table dialog
+        // =================================================================
+
+        var COLUMNS = [
+            ["Type",   120, "type"],
+            ["Name",   200, "name"],
+            ["Copies",  55, "groupSize"],
+            ["Views",   55, "views"],
+            ["Rels",    55, "rels"],
+            ["ID",     180, "id"]
+        ];
+
+        var sortColumn = 0;
+        var sortAscending = true;
+        var tableWidget = null;
+        var altColor = null;
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        function comparator(a, b) {
+            var key = COLUMNS[sortColumn][2];
+            var va = a[key];
+            var vb = b[key];
+            if (typeof va === "number" && typeof vb === "number") {
+                return sortAscending ? va - vb : vb - va;
+            }
+            var cmp = String(va).localeCompare(String(vb));
+            return sortAscending ? cmp : -cmp;
+        }
+
+        function populateTable() {
+            tableWidget.removeAll();
+            duplicates.sort(comparator);
+
+            // Alternate background per group to visually separate them
+            var lastKey = "";
+            var colorToggle = false;
+
+            for (var i = 0; i < duplicates.length; i++) {
+                var el = duplicates[i];
+                var key = el.type + "|" + el.name;
+                if (key !== lastKey) {
+                    colorToggle = !colorToggle;
+                    lastKey = key;
+                }
+
+                var item = new TableItem(tableWidget, SWT.NONE);
+                item.setText(javaStringArray([
+                    el.type,
+                    el.name,
+                    String(el.groupSize),
+                    String(el.views),
+                    String(el.rels),
+                    el.id
+                ]));
+                if (colorToggle && altColor) {
+                    item.setBackground(altColor);
+                }
+            }
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Find Duplicate Elements");
+                    newShell.setMinimumSize(700, 400);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+                    var display = Display.getCurrent();
+                    altColor = new Color(display, 240, 240, 248);
+
+                    myDialog.dialog.setTitle("Duplicate Elements");
+                    myDialog.dialog.setMessage(
+                        groupCount + " group" + (groupCount !== 1 ? "s" : "") +
+                        " of duplicates (" + duplicates.length + " elements total)"
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // Table
+                    tableWidget = new Table(container, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+                    tableWidget.setHeaderVisible(true);
+                    tableWidget.setLinesVisible(true);
+                    GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, 400).applyTo(tableWidget);
+
+                    for (var c = 0; c < COLUMNS.length; c++) {
+                        var col = new TableColumn(tableWidget, c >= 2 && c <= 4 ? SWT.RIGHT : SWT.NONE);
+                        col.setText(COLUMNS[c][0]);
+                        col.setWidth(COLUMNS[c][1]);
+                        col.setData("colIndex", c);
+                        col.addSelectionListener({
+                            widgetSelected: function (e) {
+                                var clicked = e.widget.getData("colIndex");
+                                if (clicked === sortColumn) {
+                                    sortAscending = !sortAscending;
+                                } else {
+                                    sortColumn = clicked;
+                                    sortAscending = true;
+                                }
+                                tableWidget.setSortColumn(e.widget);
+                                tableWidget.setSortDirection(sortAscending ? SWT.UP : SWT.DOWN);
+                                populateTable();
+                            },
+                            widgetDefaultSelected: function () {}
+                        });
+                    }
+
+                    tableWidget.setSortColumn(tableWidget.getColumn(0));
+                    tableWidget.setSortDirection(SWT.UP);
+
+                    populateTable();
+
+                    var summaryLabel = new Label(container, SWT.NONE);
+                    summaryLabel.setText(
+                        groupCount + " duplicate group" + (groupCount !== 1 ? "s" : "") +
+                        "  |  Click column headers to sort"
+                    );
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(summaryLabel);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                close: function () {
+                    if (altColor && !altColor.isDisposed()) {
+                        altColor.dispose();
+                    }
+                    return Java.super(myDialog.dialog).close();
+                },
+
+                getInitialSize: function () {
+                    return new Point(750, 550);
+                }
+            })
+        };
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Find Duplicate Elements: " + groupCount + " groups, " + duplicates.length + " elements.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

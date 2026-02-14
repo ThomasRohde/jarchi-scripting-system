@@ -1,0 +1,245 @@
+/**
+ * @name Find Unused Elements
+ * @description Scans the model for elements that are not placed on any view.
+ * Shows results in a sortable table dialog with type, name, relationships,
+ * and folder location. Helps identify candidates for cleanup.
+ * @version 2.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var Color = swtImports.Color;
+    var Display = swtImports.Display;
+
+    try {
+        requireModel();
+        log.header("Find Unused Elements");
+
+        // =================================================================
+        // Scan model
+        // =================================================================
+
+        var unused = [];
+        var totalElements = 0;
+
+        function getFolderPath(element) {
+            var parts = [];
+            var parent = $(element).parent();
+            while (parent && parent.size() > 0) {
+                var p = parent.first();
+                if (p.name) parts.unshift(p.name);
+                parent = $(p).parent();
+            }
+            return parts.length > 0 ? parts.join(" / ") : "(root)";
+        }
+
+        $("element").each(function (element) {
+            totalElements++;
+            if ($(element).viewRefs().size() === 0) {
+                unused.push({
+                    type: element.type,
+                    name: element.name && element.name.trim() ? element.name : "(unnamed)",
+                    id: element.id,
+                    folder: getFolderPath(element),
+                    rels: $(element).rels().size()
+                });
+            }
+        });
+
+        if (unused.length === 0) {
+            log.success("All " + totalElements + " elements are used in at least one view.");
+            MessageDialog.openInformation(shell, "Find Unused Elements",
+                "No unused elements found.\n\nAll " + totalElements + " elements appear on at least one view.");
+            return;
+        }
+
+        // Sort by type then name
+        unused.sort(function (a, b) {
+            var tc = a.type.localeCompare(b.type);
+            return tc !== 0 ? tc : a.name.localeCompare(b.name);
+        });
+
+        var isolated = unused.filter(function (e) { return e.rels === 0; }).length;
+
+        log.info("Found " + unused.length + " unused elements out of " + totalElements + " total.");
+
+        // =================================================================
+        // Table dialog
+        // =================================================================
+
+        // Column definitions: [header, width, dataKey]
+        var COLUMNS = [
+            ["Type",    120, "type"],
+            ["Name",    200, "name"],
+            ["Rels",     50, "rels"],
+            ["Folder",  200, "folder"],
+            ["ID",      180, "id"]
+        ];
+
+        var sortColumn = 0;
+        var sortAscending = true;
+        var tableWidget = null;
+        var grayColor = null;
+
+        function comparator(a, b) {
+            var key = COLUMNS[sortColumn][2];
+            var va = a[key];
+            var vb = b[key];
+            if (typeof va === "number" && typeof vb === "number") {
+                return sortAscending ? va - vb : vb - va;
+            }
+            var cmp = String(va).localeCompare(String(vb));
+            return sortAscending ? cmp : -cmp;
+        }
+
+        function populateTable() {
+            tableWidget.removeAll();
+            unused.sort(comparator);
+            for (var i = 0; i < unused.length; i++) {
+                var el = unused[i];
+                var item = new TableItem(tableWidget, SWT.NONE);
+                item.setText(javaStringArray([
+                    el.type,
+                    el.name,
+                    String(el.rels),
+                    el.folder,
+                    el.id
+                ]));
+                // Gray out isolated elements (no relationships)
+                if (el.rels === 0 && grayColor) {
+                    item.setForeground(2, grayColor);
+                }
+            }
+        }
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Find Unused Elements");
+                    newShell.setMinimumSize(700, 400);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+                    var display = Display.getCurrent();
+                    grayColor = new Color(display, 160, 160, 160);
+
+                    myDialog.dialog.setTitle("Unused Elements");
+                    myDialog.dialog.setMessage(
+                        unused.length + " unused out of " + totalElements + " total elements" +
+                        (isolated > 0 ? "  \u2014  " + isolated + " fully isolated (no relationships)" : "")
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // Table
+                    tableWidget = new Table(container, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+                    tableWidget.setHeaderVisible(true);
+                    tableWidget.setLinesVisible(true);
+                    GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, 400).applyTo(tableWidget);
+
+                    // Create columns with sort listeners
+                    for (var c = 0; c < COLUMNS.length; c++) {
+                        var col = new TableColumn(tableWidget, SWT.NONE);
+                        col.setText(COLUMNS[c][0]);
+                        col.setWidth(COLUMNS[c][1]);
+                        col.setData("colIndex", c);
+                        col.addSelectionListener({
+                            widgetSelected: function (e) {
+                                var clicked = e.widget.getData("colIndex");
+                                if (clicked === sortColumn) {
+                                    sortAscending = !sortAscending;
+                                } else {
+                                    sortColumn = clicked;
+                                    sortAscending = true;
+                                }
+                                tableWidget.setSortColumn(e.widget);
+                                tableWidget.setSortDirection(sortAscending ? SWT.UP : SWT.DOWN);
+                                populateTable();
+                            },
+                            widgetDefaultSelected: function () {}
+                        });
+                    }
+
+                    // Set initial sort indicator
+                    tableWidget.setSortColumn(tableWidget.getColumn(0));
+                    tableWidget.setSortDirection(SWT.UP);
+
+                    populateTable();
+
+                    // Summary label
+                    var summaryLabel = new Label(container, SWT.NONE);
+                    summaryLabel.setText(
+                        unused.length + " element" + (unused.length !== 1 ? "s" : "") +
+                        "  |  Click column headers to sort"
+                    );
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(summaryLabel);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                close: function () {
+                    if (grayColor && !grayColor.isDisposed()) {
+                        grayColor.dispose();
+                    }
+                    return Java.super(myDialog.dialog).close();
+                },
+
+                getInitialSize: function () {
+                    return new Point(850, 550);
+                }
+            })
+        };
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Find Unused Elements: " + unused.length + " unused / " + totalElements + " total.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

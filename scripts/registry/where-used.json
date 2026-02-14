@@ -1,0 +1,28 @@
+{
+  "id": "analysis.where_used",
+  "title": "Where Used",
+  "category": ["Analysis"],
+  "order": 20,
+
+  "script": {
+    "path": "Where Used.ajs"
+  },
+
+  "description": "Shows which views contain the selected element(s). Lists every view reference for each selected element across the model.",
+  "tags": ["analysis", "views", "navigation", "references", "where-used"],
+
+  "help": {
+    "markdown_path": ""
+  },
+
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": ["element"],
+    "min": 1,
+    "require_view": false
+  }
+}

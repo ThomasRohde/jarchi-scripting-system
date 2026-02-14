@@ -1,0 +1,30 @@
+{
+  "name": "jarchi-scripting-system",
+  "version": "1.0.0",
+  "description": "A comprehensive scripting toolkit for Archi — menu launcher, ELK graph layout, REST API server, model analysis, and reusable libraries for jArchi",
+  "scripts": {
+    "vendor": "node build/vendor.js",
+    "postinstall": "node build/vendor.js"
+  },
+  "keywords": [
+    "archi",
+    "archimate",
+    "jarchi",
+    "enterprise-architecture",
+    "graph-layout",
+    "elk",
+    "scripting"
+  ],
+  "author": "Thomas Klok Rohde",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ThomasRohde/jarchi-scripting-system.git"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "dagre": "^0.8.5",
+    "elkjs": "0.9.3",
+    "marked": "^15.0.7"
+  }
+}

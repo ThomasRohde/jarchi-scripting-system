@@ -1,0 +1,28 @@
+{
+  "id": "cleanup.delete_unused_elements",
+  "title": "Delete Unused Elements",
+  "category": ["Cleanup"],
+  "order": 10,
+
+  "script": {
+    "path": "Delete Unused Elements.ajs"
+  },
+
+  "description": "Finds and deletes elements not placed on any view, along with their relationships. Shows a type summary and asks for confirmation before deleting.",
+  "tags": ["cleanup", "delete", "unused", "orphan", "model-health"],
+
+  "help": {
+    "markdown_path": ""
+  },
+
+  "run": {
+    "danger_level": "high",
+    "confirm_message": "This will permanently delete unused elements and their relationships."
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

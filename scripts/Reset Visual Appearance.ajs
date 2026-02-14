@@ -1,0 +1,74 @@
+/**
+ * @name Reset Visual Appearance
+ * @description Resets fill color, font color, font, and line color of selected
+ * diagram objects back to their default values. Works on the current
+ * selection in a view, or all objects in the active view if nothing is selected.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+
+(function () {
+    "use strict";
+
+    try {
+        requireModel();
+        log.header("Reset Visual Appearance");
+
+        // Get diagram objects from selection, or fall back to entire view
+        var objects = $(selection).filter("diagram-model-object");
+        var connections = $(selection).filter("diagram-model-connection");
+        var source;
+
+        if (objects.size() === 0 && connections.size() === 0) {
+            var view = resolveSelection.activeView();
+            if (!view) {
+                window.alert("Please select diagram objects or a view first.");
+                return;
+            }
+            objects = $(view).find("diagram-model-object");
+            connections = $(view).find("diagram-model-connection");
+            source = "entire view '" + (view.name || "unnamed") + "'";
+        } else {
+            source = objects.size() + " object(s) and " + connections.size() + " connection(s)";
+        }
+
+        log.info("Resetting appearance for " + source + "...");
+
+        var objectCount = 0;
+        var connectionCount = 0;
+
+        // Reset diagram objects
+        objects.each(function (obj) {
+            obj.fillColor = null;       // Reset to default fill
+            obj.fontColor = null;       // Reset to default font color
+            obj.font = null;            // Reset to default font
+            obj.lineColor = null;       // Reset to default line color
+            obj.opacity = 255;          // Fully opaque
+            obj.outlineOpacity = 255;   // Fully opaque outline
+            objectCount++;
+        });
+
+        // Reset connections
+        connections.each(function (conn) {
+            conn.fontColor = null;
+            conn.font = null;
+            conn.lineColor = null;
+            conn.lineWidth = 1;
+            connectionCount++;
+        });
+
+        log.success("Reset " + objectCount + " objects and " + connectionCount + " connections to defaults.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

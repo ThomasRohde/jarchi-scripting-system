@@ -1,0 +1,23 @@
+{
+  "id": "utilities.model_api_server",
+  "title": "Model API Server",
+  "category": ["Utilities"],
+  "order": 50,
+  "script": {
+    "path": "Model API Server.ajs"
+  },
+  "description": "Start an HTTP REST API server exposing ArchiMate model operations with undoable commands.",
+  "tags": ["server", "api", "http", "rest", "automation", "mcp"],
+  "help": {
+    "markdown_path": "../help/model-api-server.md"
+  },
+  "run": {
+    "danger_level": "high",
+    "confirm_message": "This will start an HTTP server on localhost:8765 that can modify the model. Continue?"
+  },
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

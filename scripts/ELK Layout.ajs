@@ -1,0 +1,95 @@
+/**
+ * @name ELK Layout
+ * @description Automatic graph layout using the ELK (Eclipse Layout Kernel) engine.
+ * Provides a comprehensive options dialog for configuring layout algorithm, spacing,
+ * edge routing, port constraints, and more. Applies computed positions and bendpoints
+ * back to the active ArchiMate view.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+// Load dependencies in order
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+load(__DIR__ + "lib/elkTemplates.js");
+load(__DIR__ + "lib/elkTemplateManagerDialog.js");
+load(__DIR__ + "lib/elkLayoutDialog.js");
+load(__DIR__ + "lib/elkLayoutEngine.js");
+load(__DIR__ + "vendor/elkjs/elk-sync.js");
+
+(function () {
+    "use strict";
+
+    try {
+        // Ensure a model is loaded
+        requireModel();
+
+        // Get the active view (menu context → selection → active editor)
+        var view = resolveSelection.activeView();
+        if (!view) {
+            window.alert("Please select a view in the model tree or open a view before running this script.");
+            return;
+        }
+
+        // Check that the view has content
+        var childCount = 0;
+        $(view).children().each(function () { childCount++; });
+        if (childCount === 0) {
+            window.alert("The selected view is empty. Add elements to the view first.");
+            return;
+        }
+
+        log.header("ELK Layout");
+        log.info("Starting for view '" + (view.name || "unnamed") + "'");
+        log.detail("  Elements: " + childCount);
+
+        // Show the options dialog
+        var options = showElkLayoutDialog(shell);
+        if (!options) {
+            log.warn("ELK Layout: Cancelled by user.");
+            return;
+        }
+
+        log.info("Algorithm = " + options.algorithm + ", Direction = " + options.direction);
+
+        // Build the ELK graph from the view
+        var buildResult = elkLayoutEngine.buildElkGraph(view, options);
+        var graph = buildResult.graph;
+        var maps = buildResult.maps;
+
+        var nodeCount = Object.keys(maps.nodeMap).length;
+        var edgeCount = Object.keys(maps.edgeMap).length;
+        log.detail("  ELK graph: " + nodeCount + " nodes, " + edgeCount + " edges");
+
+        if (nodeCount === 0) {
+            window.alert("No elements found in the view to layout.");
+            return;
+        }
+
+        // Build ELK layout options from dialog selections
+        var layoutOptions = elkLayoutEngine.buildLayoutOptions(options);
+
+        // Run ELK layout
+        log.detail("  Running ELK layout...");
+        var layoutResult = elkLayout(graph, layoutOptions);
+
+        // Apply the layout results back to the view
+        elkLayoutEngine.applyElkLayout(view, layoutResult, maps, options);
+
+        log.success("ELK Layout: Complete. " + nodeCount + " elements positioned" +
+            (options.applyBendpoints ? ", bendpoints applied" : "") + ".");
+
+    } catch (error) {
+        log.error("ELK Layout failed: " + error.toString());
+        if (error.stack) {
+            log.error(error.stack);
+        }
+        window.alert("ELK Layout Error:\n" + error.message);
+    }
+})();

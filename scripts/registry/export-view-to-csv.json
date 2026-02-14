@@ -1,0 +1,28 @@
+{
+  "id": "export.export_view_to_csv",
+  "title": "Export View to CSV",
+  "category": ["Export"],
+  "order": 20,
+
+  "script": {
+    "path": "Export View to CSV.ajs"
+  },
+
+  "description": "Exports elements and relationships from the active view to CSV files. Creates two files: one for elements (name, type, documentation) and one for relationships (source, type, target).",
+  "tags": ["export", "csv", "view", "elements", "relationships"],
+
+  "help": {
+    "markdown_path": ""
+  },
+
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": ["view"],
+    "min": 0,
+    "require_view": true
+  }
+}

@@ -1,0 +1,232 @@
+/**
+ * @name Where Used
+ * @description Shows which views contain the selected element(s). Lists every
+ * view reference for each selected element, making it easy to find where
+ * an element appears across the model.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+
+    try {
+        requireModel();
+        log.header("Where Used");
+
+        // =================================================================
+        // Get selected elements
+        // =================================================================
+
+        var selected = resolveSelection.selectedConcepts("element");
+
+        if (selected.size() === 0) {
+            window.alert("Please select one or more elements in the model tree or on a view.");
+            return;
+        }
+
+        log.info("Checking " + selected.size() + " element(s)...");
+
+        // =================================================================
+        // Find view references
+        // =================================================================
+
+        var rows = [];
+
+        selected.each(function (element) {
+            var elementName = element.name && element.name.trim() ? element.name : "(unnamed)";
+            var viewRefs = $(element).viewRefs();
+
+            if (viewRefs.size() === 0) {
+                rows.push({
+                    elementName: elementName,
+                    elementType: element.type,
+                    viewName: "(not on any view)",
+                    viewType: "",
+                    viewId: ""
+                });
+            } else {
+                viewRefs.each(function (diagramObj) {
+                    // Navigate up to the view
+                    var view = $(diagramObj).parents("archimate-diagram-model").first()
+                            || $(diagramObj).parents("sketch-model").first()
+                            || $(diagramObj).parents("canvas-model").first();
+
+                    if (view) {
+                        var viewName = view.name && view.name.trim() ? view.name : "(unnamed view)";
+                        rows.push({
+                            elementName: elementName,
+                            elementType: element.type,
+                            viewName: viewName,
+                            viewType: view.type,
+                            viewId: view.id
+                        });
+                    }
+                });
+            }
+        });
+
+        if (rows.length === 0) {
+            log.warn("No view references found.");
+            return;
+        }
+
+        // Sort by element name, then view name
+        rows.sort(function (a, b) {
+            var en = a.elementName.localeCompare(b.elementName);
+            return en !== 0 ? en : a.viewName.localeCompare(b.viewName);
+        });
+
+        // Log summary
+        var viewCount = rows.filter(function (r) { return r.viewId !== ""; }).length;
+        log.info("Found " + viewCount + " view reference(s) for " + selected.size() + " element(s).");
+
+        // =================================================================
+        // Table dialog
+        // =================================================================
+
+        var COLUMNS = [
+            ["Element",      180, "elementName"],
+            ["Element Type", 130, "elementType"],
+            ["View",         200, "viewName"],
+            ["View Type",    130, "viewType"]
+        ];
+
+        var sortColumn = 0;
+        var sortAscending = true;
+        var tableWidget = null;
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        function comparator(a, b) {
+            var key = COLUMNS[sortColumn][2];
+            var cmp = String(a[key]).localeCompare(String(b[key]));
+            return sortAscending ? cmp : -cmp;
+        }
+
+        function populateTable() {
+            tableWidget.removeAll();
+            rows.sort(comparator);
+            for (var i = 0; i < rows.length; i++) {
+                var r = rows[i];
+                var item = new TableItem(tableWidget, SWT.NONE);
+                item.setText(javaStringArray([
+                    r.elementName,
+                    r.elementType,
+                    r.viewName,
+                    r.viewType
+                ]));
+            }
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Where Used");
+                    newShell.setMinimumSize(600, 350);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+
+                    myDialog.dialog.setTitle("Where Used");
+                    myDialog.dialog.setMessage(
+                        selected.size() + " element(s) found on " + viewCount + " view(s)"
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    tableWidget = new Table(container, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+                    tableWidget.setHeaderVisible(true);
+                    tableWidget.setLinesVisible(true);
+                    GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, 350).applyTo(tableWidget);
+
+                    for (var c = 0; c < COLUMNS.length; c++) {
+                        var col = new TableColumn(tableWidget, SWT.NONE);
+                        col.setText(COLUMNS[c][0]);
+                        col.setWidth(COLUMNS[c][1]);
+                        col.setData("colIndex", c);
+                        col.addSelectionListener({
+                            widgetSelected: function (e) {
+                                var clicked = e.widget.getData("colIndex");
+                                if (clicked === sortColumn) {
+                                    sortAscending = !sortAscending;
+                                } else {
+                                    sortColumn = clicked;
+                                    sortAscending = true;
+                                }
+                                tableWidget.setSortColumn(e.widget);
+                                tableWidget.setSortDirection(sortAscending ? SWT.UP : SWT.DOWN);
+                                populateTable();
+                            },
+                            widgetDefaultSelected: function () {}
+                        });
+                    }
+
+                    tableWidget.setSortColumn(tableWidget.getColumn(0));
+                    tableWidget.setSortDirection(SWT.UP);
+
+                    populateTable();
+
+                    var summaryLabel = new Label(container, SWT.NONE);
+                    summaryLabel.setText(rows.length + " row(s)  |  Click column headers to sort");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(summaryLabel);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                getInitialSize: function () {
+                    return new Point(720, 500);
+                }
+            })
+        };
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Where Used complete.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

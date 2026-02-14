@@ -1,0 +1,117 @@
+/**
+ * @name Rename Elements
+ * @description Bulk find-and-replace in element names. Searches selected elements
+ * (or all elements if none selected) for a text pattern and replaces it.
+ * Supports plain text and optional regex matching.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+
+(function () {
+    "use strict";
+
+    try {
+        requireModel();
+        log.header("Rename Elements");
+
+        // Prompt for search and replace strings
+        var searchStr = window.prompt("Find text in element names:", "");
+        if (searchStr === null || searchStr === "") {
+            log.warn("Cancelled — no search text provided.");
+            return;
+        }
+
+        var replaceStr = window.prompt("Replace with:", "");
+        if (replaceStr === null) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        var useRegex = window.confirm("Use regex matching?\n\nClick OK for regex, Cancel for plain text.");
+
+        // Get elements to search (tree or view canvas selection)
+        var elements = resolveSelection.selectedConcepts("element");
+        var source;
+        if (elements.size() === 0) {
+            elements = $("element");
+            source = "all model elements";
+        } else {
+            source = elements.size() + " selected element(s)";
+        }
+
+        log.info("Searching " + source + "...");
+        log.detail("  Find: " + searchStr);
+        log.detail("  Replace: " + replaceStr);
+        log.detail("  Mode: " + (useRegex ? "regex" : "plain text"));
+        log.info("");
+
+        var regex;
+        if (useRegex) {
+            try {
+                regex = new RegExp(searchStr, "g");
+            } catch (e) {
+                window.alert("Invalid regex: " + e.message);
+                return;
+            }
+        }
+
+        var matches = [];
+        elements.each(function (element) {
+            var name = element.name || "";
+            var newName;
+
+            if (useRegex) {
+                regex.lastIndex = 0;
+                if (regex.test(name)) {
+                    regex.lastIndex = 0;
+                    newName = name.replace(regex, replaceStr);
+                }
+            } else {
+                if (name.indexOf(searchStr) !== -1) {
+                    // Replace all occurrences for plain text
+                    newName = name.split(searchStr).join(replaceStr);
+                }
+            }
+
+            if (newName !== undefined && newName !== name) {
+                matches.push({ element: element, oldName: name, newName: newName });
+            }
+        });
+
+        if (matches.length === 0) {
+            log.warn("No matching elements found.");
+            return;
+        }
+
+        // Show preview
+        log.info("Preview of " + matches.length + " rename(s):");
+        for (var i = 0; i < matches.length; i++) {
+            var m = matches[i];
+            log.detail("  \"" + m.oldName + "\" → \"" + m.newName + "\"");
+        }
+
+        if (!window.confirm("Rename " + matches.length + " element(s)?")) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // Apply renames
+        for (var i = 0; i < matches.length; i++) {
+            matches[i].element.name = matches[i].newName;
+        }
+
+        log.success("Renamed " + matches.length + " elements.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

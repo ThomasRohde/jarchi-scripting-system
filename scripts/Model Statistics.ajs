@@ -1,0 +1,225 @@
+/**
+ * @name Model Statistics
+ * @description Shows a summary of elements, relationships, and views grouped by type.
+ * Displays counts in a sortable table dialog. Works on the entire model.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var TabFolder = Java.type("org.eclipse.swt.widgets.TabFolder");
+    var TabItem = Java.type("org.eclipse.swt.widgets.TabItem");
+
+    try {
+        requireModel();
+        log.header("Model Statistics");
+
+        // =================================================================
+        // Gather statistics
+        // =================================================================
+
+        function countByType(collection) {
+            var counts = {};
+            collection.each(function (item) {
+                var t = item.type || "unknown";
+                counts[t] = (counts[t] || 0) + 1;
+            });
+            return Object.entries(counts).sort(function (a, b) {
+                return b[1] - a[1];
+            });
+        }
+
+        var elements = $("element");
+        var relationships = $("relationship");
+        var views = $("view");
+        var folders = $("folder");
+
+        var elementCounts = countByType(elements);
+        var relCounts = countByType(relationships);
+        var viewCounts = countByType(views);
+
+        var totalElements = elements.size();
+        var totalRels = relationships.size();
+        var totalViews = views.size();
+        var totalFolders = folders.size();
+
+        log.info("Elements: " + totalElements);
+        log.info("Relationships: " + totalRels);
+        log.info("Views: " + totalViews);
+
+        // =================================================================
+        // Helper: create a string array for TableItem.setText
+        // =================================================================
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        // =================================================================
+        // Helper: build a sortable table in a given parent
+        // =================================================================
+
+        function buildTable(parent, data, colDefs) {
+            var sortCol = { value: 0 };
+            var ascending = { value: false }; // Start descending by count
+
+            var table = new Table(parent, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL);
+            table.setHeaderVisible(true);
+            table.setLinesVisible(true);
+            GridDataFactory.fillDefaults().grab(true, true).applyTo(table);
+
+            for (var c = 0; c < colDefs.length; c++) {
+                var col = new TableColumn(table, c === 1 ? SWT.RIGHT : SWT.NONE);
+                col.setText(colDefs[c][0]);
+                col.setWidth(colDefs[c][1]);
+                col.setData("colIndex", c);
+                col.addSelectionListener({
+                    widgetSelected: function (e) {
+                        var clicked = e.widget.getData("colIndex");
+                        if (clicked === sortCol.value) {
+                            ascending.value = !ascending.value;
+                        } else {
+                            sortCol.value = clicked;
+                            ascending.value = clicked === 0; // Ascending for name, descending for count
+                        }
+                        table.setSortColumn(e.widget);
+                        table.setSortDirection(ascending.value ? SWT.UP : SWT.DOWN);
+                        populate(table, data, sortCol.value, ascending.value);
+                    },
+                    widgetDefaultSelected: function () {}
+                });
+            }
+
+            // Initial sort indicator (count descending)
+            table.setSortColumn(table.getColumn(1));
+            table.setSortDirection(SWT.DOWN);
+
+            populate(table, data, sortCol.value, ascending.value);
+            return table;
+        }
+
+        function populate(table, data, sortCol, ascending) {
+            table.removeAll();
+            var sorted = data.slice().sort(function (a, b) {
+                var va = sortCol === 0 ? a[0] : a[1];
+                var vb = sortCol === 0 ? b[0] : b[1];
+                if (typeof va === "number" && typeof vb === "number") {
+                    return ascending ? va - vb : vb - va;
+                }
+                var cmp = String(va).localeCompare(String(vb));
+                return ascending ? cmp : -cmp;
+            });
+            for (var i = 0; i < sorted.length; i++) {
+                var item = new TableItem(table, SWT.NONE);
+                item.setText(javaStringArray([sorted[i][0], String(sorted[i][1])]));
+            }
+        }
+
+        // =================================================================
+        // Dialog
+        // =================================================================
+
+        var COL_DEFS = [["Type", 280], ["Count", 100]];
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Model Statistics");
+                    newShell.setMinimumSize(500, 400);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+
+                    myDialog.dialog.setTitle("Model Statistics");
+                    myDialog.dialog.setMessage(
+                        totalElements + " elements, " + totalRels + " relationships, " +
+                        totalViews + " views, " + totalFolders + " folders"
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // Tab folder
+                    var tabFolder = new TabFolder(container, SWT.NONE);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(tabFolder);
+
+                    // Elements tab
+                    var elemTab = new TabItem(tabFolder, SWT.NONE);
+                    elemTab.setText("Elements (" + totalElements + ")");
+                    var elemComposite = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(elemComposite);
+                    buildTable(elemComposite, elementCounts, COL_DEFS);
+                    elemTab.setControl(elemComposite);
+
+                    // Relationships tab
+                    var relTab = new TabItem(tabFolder, SWT.NONE);
+                    relTab.setText("Relationships (" + totalRels + ")");
+                    var relComposite = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(relComposite);
+                    buildTable(relComposite, relCounts, COL_DEFS);
+                    relTab.setControl(relComposite);
+
+                    // Views tab
+                    var viewTab = new TabItem(tabFolder, SWT.NONE);
+                    viewTab.setText("Views (" + totalViews + ")");
+                    var viewComposite = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(viewComposite);
+                    buildTable(viewComposite, viewCounts, COL_DEFS);
+                    viewTab.setControl(viewComposite);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                getInitialSize: function () {
+                    return new Point(550, 500);
+                }
+            })
+        };
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Model Statistics complete.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

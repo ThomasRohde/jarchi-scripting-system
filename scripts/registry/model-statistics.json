@@ -1,0 +1,28 @@
+{
+  "id": "analysis.model_statistics",
+  "title": "Model Statistics",
+  "category": ["Analysis"],
+  "order": 5,
+
+  "script": {
+    "path": "Model Statistics.ajs"
+  },
+
+  "description": "Shows a summary of elements, relationships, and views grouped by type in a tabbed dialog with sortable tables.",
+  "tags": ["analysis", "statistics", "count", "summary", "model-health"],
+
+  "help": {
+    "markdown_path": "../help/model-statistics.md"
+  },
+
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

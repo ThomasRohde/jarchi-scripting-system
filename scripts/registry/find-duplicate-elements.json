@@ -1,0 +1,28 @@
+{
+  "id": "analysis.find_duplicate_elements",
+  "title": "Find Duplicate Elements",
+  "category": ["Analysis"],
+  "order": 15,
+
+  "script": {
+    "path": "Find Duplicate Elements.ajs"
+  },
+
+  "description": "Scans the model for elements that share the same name and type. Displays groups of duplicates to help identify candidates for merging.",
+  "tags": ["analysis", "duplicate", "cleanup", "merge", "model-health"],
+
+  "help": {
+    "markdown_path": "../help/find-duplicate-elements.md"
+  },
+
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

@@ -1,0 +1,118 @@
+/**
+ * @name Copy to Clipboard
+ * @description Copies selected elements' information to the clipboard as
+ * tab-delimited text. The output can be pasted directly into Excel,
+ * Word, or other applications. Includes name, type, documentation,
+ * and properties.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+
+(function () {
+    "use strict";
+
+    var Clipboard = Java.type("org.eclipse.swt.dnd.Clipboard");
+    var TextTransfer = Java.type("org.eclipse.swt.dnd.TextTransfer");
+    var Transfer = Java.type("org.eclipse.swt.dnd.Transfer");
+    var Display = swtImports.Display;
+
+    try {
+        requireModel();
+        log.header("Copy to Clipboard");
+
+        // =================================================================
+        // Get selected elements
+        // =================================================================
+
+        var elements = resolveSelection.selectedConcepts("element");
+
+        if (elements.size() === 0) {
+            window.alert("Please select one or more elements in the model tree or on a view.");
+            return;
+        }
+
+        log.info("Copying " + elements.size() + " element(s)...");
+
+        // =================================================================
+        // Collect all property keys across selected elements
+        // =================================================================
+
+        var propKeys = {};
+        elements.each(function (el) {
+            var props = el.prop();
+            if (props) {
+                for (var i = 0; i < props.length; i++) {
+                    propKeys[props[i]] = true;
+                }
+            }
+        });
+        var sortedPropKeys = Object.keys(propKeys).sort();
+
+        // =================================================================
+        // Build tab-delimited output
+        // =================================================================
+
+        var TAB = "\t";
+        var NL = "\n";
+
+        // Header row
+        var headers = ["Name", "Type", "Documentation"];
+        for (var k = 0; k < sortedPropKeys.length; k++) {
+            headers.push(sortedPropKeys[k]);
+        }
+        var lines = [headers.join(TAB)];
+
+        // Data rows
+        elements.each(function (el) {
+            var name = el.name && el.name.trim() ? el.name : "";
+            var doc = el.documentation || "";
+            // Replace tabs and newlines in documentation to keep table clean
+            doc = doc.replace(/\t/g, " ").replace(/\r?\n/g, " ");
+
+            var row = [name, el.type, doc];
+            for (var k = 0; k < sortedPropKeys.length; k++) {
+                var val = el.prop(sortedPropKeys[k]) || "";
+                row.push(String(val).replace(/\t/g, " ").replace(/\r?\n/g, " "));
+            }
+            lines.push(row.join(TAB));
+        });
+
+        var text = lines.join(NL);
+
+        // =================================================================
+        // Copy to clipboard
+        // =================================================================
+
+        var clipboard = new Clipboard(Display.getCurrent());
+        try {
+            var textTransfer = TextTransfer.getInstance();
+            clipboard.setContents(
+                [text],
+                [textTransfer]
+            );
+        } finally {
+            clipboard.dispose();
+        }
+
+        log.detail("  Columns: " + headers.join(", "));
+        log.success(
+            "Copied " + elements.size() + " element(s) to clipboard (" +
+            (sortedPropKeys.length > 0 ? sortedPropKeys.length + " properties included" : "no properties") +
+            ")."
+        );
+        log.info("Paste into Excel, Word, or any text editor.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

@@ -1,0 +1,90 @@
+/**
+ * @name Element Usage Map
+ * @description Shows where selected elements (or all elements) are used across views.
+ * For each element, lists every view that contains a visual reference.
+ * Useful for impact analysis before making changes.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+
+(function () {
+    "use strict";
+
+    try {
+        requireModel();
+        log.header("Element Usage Map");
+
+        // Use selected elements (tree or view canvas), or fall back to all elements
+        var elements = resolveSelection.selectedConcepts("element");
+        var source;
+        if (elements.size() === 0) {
+            elements = $("element");
+            source = "all model elements";
+        } else {
+            source = elements.size() + " selected element(s)";
+        }
+
+        log.info("Scanning " + source + "...");
+        log.info("");
+
+        var totalElements = 0;
+        var maxViews = 0;
+        var singleViewCount = 0;
+        var multiViewCount = 0;
+        var noViewCount = 0;
+
+        elements.each(function (element) {
+            totalElements++;
+            var name = element.name && element.name.trim() ? element.name : "-- unnamed --";
+            var refs = $(element).viewRefs();
+            var viewCount = refs.size();
+
+            if (viewCount > maxViews) maxViews = viewCount;
+
+            if (viewCount === 0) {
+                noViewCount++;
+                log.warn(name + " (" + element.type + ") — not on any view");
+            } else if (viewCount === 1) {
+                singleViewCount++;
+                // viewRefs() returns diagram objects, navigate to parent view
+                var diagramObj = refs.first();
+                var parentView = $(diagramObj).parents("archimate-diagram-model").first()
+                        || $(diagramObj).parents("sketch-model").first()
+                        || $(diagramObj).parents("canvas-model").first();
+                var viewName = parentView ? (parentView.name || "-- unnamed view --") : "-- unknown view --";
+                log.info(name + " (" + element.type + ") — 1 view:");
+                log.detail("  " + viewName);
+            } else {
+                multiViewCount++;
+                log.info(name + " (" + element.type + ") — " + viewCount + " views:");
+                refs.each(function (diagramObj) {
+                    // viewRefs() returns diagram objects, navigate to parent view
+                    var parentView = $(diagramObj).parents("archimate-diagram-model").first()
+                            || $(diagramObj).parents("sketch-model").first()
+                            || $(diagramObj).parents("canvas-model").first();
+                    var vName = parentView ? (parentView.name || "-- unnamed view --") : "-- unknown view --";
+                    log.detail("  " + vName);
+                });
+            }
+        });
+
+        log.info("");
+        log.success("Summary: " + totalElements + " elements scanned");
+        log.detail("  On multiple views: " + multiViewCount);
+        log.detail("  On single view:    " + singleViewCount);
+        log.detail("  Not on any view:   " + noViewCount);
+        log.detail("  Max views for one element: " + maxViews);
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

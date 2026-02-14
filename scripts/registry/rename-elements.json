@@ -1,0 +1,28 @@
+{
+  "id": "editing.rename_elements",
+  "title": "Rename Elements",
+  "category": ["Editing"],
+  "order": 10,
+
+  "script": {
+    "path": "Rename Elements.ajs"
+  },
+
+  "description": "Bulk find-and-replace in element names. Works on selected elements or all elements. Supports plain text and regex matching. Shows a preview before applying changes.",
+  "tags": ["editing", "rename", "find-replace", "bulk", "names"],
+
+  "help": {
+    "markdown_path": ""
+  },
+
+  "run": {
+    "danger_level": "medium",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": ["element"],
+    "min": 0,
+    "require_view": false
+  }
+}
