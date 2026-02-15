@@ -86,6 +86,11 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
     var COLOR_SECTION = "#2c3e50";
     var COLOR_DESC = "#666666";
 
+    // Text alignment/position constants (ITextAlignment / ITextPosition)
+    var TEXT_ALIGN_LEFT = 0;
+    var TEXT_ALIGN_CENTER = 1;
+    var TEXT_POS_CENTER = 1;
+
     // =========================================================================
     // Random value generators for each property
     // =========================================================================
@@ -344,7 +349,7 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
         titleNote.fontStyle = "bold";
         titleNote.fontSize = 26;
         titleNote.fontColor = COLOR_TITLE;
-        titleNote.textAlignment = TEXT_ALIGNMENT.CENTER;
+        titleNote.textAlignment = TEXT_ALIGN_CENTER;
 
         // --- Subtitle (model name + date) ---
         var today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
@@ -354,7 +359,7 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
         subtitleNote.borderType = BORDER_NONE;
         subtitleNote.fontSize = 11;
         subtitleNote.fontColor = COLOR_SUBTITLE;
-        subtitleNote.textAlignment = TEXT_ALIGNMENT.CENTER;
+        subtitleNote.textAlignment = TEXT_ALIGN_CENTER;
 
         // --- Place sections, descriptions, and chart notes ---
         var chartNotes = [];
@@ -370,8 +375,8 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
             sectionNote.fontStyle = "bold";
             sectionNote.fontSize = 13;
             sectionNote.fontColor = COLOR_SECTION;
-            sectionNote.textAlignment = TEXT_ALIGNMENT.LEFT;
-            sectionNote.textPosition = TEXT_POSITION.CENTER;
+            sectionNote.textAlignment = TEXT_ALIGN_LEFT;
+            sectionNote.textPosition = TEXT_POS_CENTER;
             cursorY += SECTION_HEADER_HEIGHT + 6;
 
             // Description notes (one per chart, side by side)
@@ -386,8 +391,8 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
                 descNote.fontSize = 12;
                 descNote.fontStyle = "italic";
                 descNote.fontColor = COLOR_DESC;
-                descNote.textAlignment = TEXT_ALIGNMENT.CENTER;
-                descNote.textPosition = TEXT_POSITION.CENTER;
+                descNote.textAlignment = TEXT_ALIGN_CENTER;
+                descNote.textPosition = TEXT_POS_CENTER;
             }
             cursorY += DESC_HEIGHT + DESC_CHART_GAP;
 

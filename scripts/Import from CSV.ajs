@@ -83,12 +83,39 @@ load(__DIR__ + "lib/requireModel.js");
 
         log.info("Reading: " + filePath);
 
+        // Read CSV with multiline field support:
+        // Accumulate physical lines into logical rows, joining when inside a quoted field.
         var lines = [];
         var reader = new BufferedReader(new FileReader(filePath));
         try {
-            var line;
-            while ((line = reader.readLine()) !== null) {
-                lines.push(String(line));
+            var physicalLine;
+            var pending = null;
+            while ((physicalLine = reader.readLine()) !== null) {
+                var line = String(physicalLine);
+                if (pending !== null) {
+                    pending += "\n" + line;
+                } else {
+                    pending = line;
+                }
+                // Count unescaped quotes — if odd, we're inside a quoted field
+                var quoteCount = 0;
+                for (var q = 0; q < pending.length; q++) {
+                    if (pending.charAt(q) === '"') {
+                        if (q + 1 < pending.length && pending.charAt(q + 1) === '"') {
+                            q++; // skip escaped quote
+                        } else {
+                            quoteCount++;
+                        }
+                    }
+                }
+                if (quoteCount % 2 === 0) {
+                    lines.push(pending);
+                    pending = null;
+                }
+            }
+            // Flush any remaining incomplete line
+            if (pending !== null) {
+                lines.push(pending);
             }
         } finally {
             reader.close();
@@ -107,7 +134,9 @@ load(__DIR__ + "lib/requireModel.js");
         var headerNorm = header.map(function (h) { return h.trim().toLowerCase(); });
 
         var isElements = headerNorm[0] === "name" && headerNorm[1] === "type";
-        var isRelationships = headerNorm[0] === "source" && headerNorm[1] === "type" && headerNorm[2] === "target";
+        var isRelationships = headerNorm[0] === "source" &&
+            (headerNorm[1] === "type" || headerNorm[1] === "source id") &&
+            (headerNorm[2] === "target" || headerNorm[3] === "target");
 
         if (!isElements && !isRelationships) {
             window.alert(
@@ -194,8 +223,10 @@ load(__DIR__ + "lib/requireModel.js");
             log.info("Detected relationship CSV format. Importing " + (lines.length - 1) + " rows...");
 
             var srcIdx = headerNorm.indexOf("source");
+            var srcIdIdx = headerNorm.indexOf("source id");
             var relTypeIdx = headerNorm.indexOf("type");
             var tgtIdx = headerNorm.indexOf("target");
+            var tgtIdIdx = headerNorm.indexOf("target id");
             var relNameIdx = headerNorm.indexOf("name");
             var relIdIdx = headerNorm.indexOf("id");
 
@@ -239,12 +270,14 @@ load(__DIR__ + "lib/requireModel.js");
                 var rFields = parseCsvLine(lines[r]);
 
                 var srcVal = srcIdx >= 0 ? (rFields[srcIdx] || "").trim() : "";
+                var srcIdVal = srcIdIdx >= 0 ? (rFields[srcIdIdx] || "").trim() : "";
                 var relType = relTypeIdx >= 0 ? (rFields[relTypeIdx] || "").trim() : "";
                 var tgtVal = tgtIdx >= 0 ? (rFields[tgtIdx] || "").trim() : "";
+                var tgtIdVal = tgtIdIdx >= 0 ? (rFields[tgtIdIdx] || "").trim() : "";
                 var relName = relNameIdx >= 0 ? (rFields[relNameIdx] || "").trim() : "";
                 var relId = relIdIdx >= 0 ? (rFields[relIdIdx] || "").trim() : "";
 
-                if (!relType || !srcVal || !tgtVal) {
+                if (!relType || (!srcVal && !srcIdVal) || (!tgtVal && !tgtIdVal)) {
                     log.warn("Row " + (r + 1) + ": missing source, type, or target, skipping.");
                     failed++;
                     continue;
@@ -259,8 +292,9 @@ load(__DIR__ + "lib/requireModel.js");
                     }
                 }
 
-                var sourceEl = findElement(srcVal);
-                var targetEl = findElement(tgtVal);
+                // Prefer ID-based lookup (reliable), fall back to name (ambiguous)
+                var sourceEl = findElement(srcIdVal || srcVal);
+                var targetEl = findElement(tgtIdVal || tgtVal);
 
                 if (!sourceEl) {
                     log.warn("Row " + (r + 1) + ": source not found '" + srcVal + "', skipping.");

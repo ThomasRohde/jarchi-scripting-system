@@ -89,7 +89,7 @@ load(__DIR__ + "lib/requireModel.js");
 
         if (templateIdx === TEMPLATE_GAP) {
             elements = 3;        // baseline + target + 1 gap
-            relationships = 2;   // gap → association → each plateau
+            relationships = 3;   // 1 plateau triggering + 2 gap associations
         } else {
             var totalPlateaus = 2 + transitions;   // baseline + transitions + target
             var totalGaps = totalPlateaus - 1;     // gap between each consecutive pair

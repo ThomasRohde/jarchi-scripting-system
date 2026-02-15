@@ -431,8 +431,9 @@ load(__DIR__ + "lib/relationshipMatrix.js");
                     var display = Display.getCurrent();
                     errorColor = new Color(display, 220, 50, 50);
 
-                    var validCount = relCount - skippedCount - errors.length;
-                    var validPct = relCount > 0 ? ((validCount / (relCount - skippedCount)) * 100).toFixed(1) : "100.0";
+                    var checkedCount = relCount - skippedCount;
+                    var validCount = checkedCount - errors.length;
+                    var validPct = checkedCount > 0 ? ((validCount / checkedCount) * 100).toFixed(1) : "N/A";
 
                     myDialog.dialog.setTitle("Compliance Report");
                     myDialog.dialog.setMessage(
@@ -458,7 +459,7 @@ load(__DIR__ + "lib/relationshipMatrix.js");
                     var lines = [
                         "Total relationships:    " + relCount,
                         "Checked:                " + (relCount - skippedCount) + (skippedCount > 0 ? "  (" + skippedCount + " skipped: junctions/nested)" : ""),
-                        "Valid:                  " + validCount + "  (" + validPct + "%)",
+                        "Valid:                  " + validCount + "  (" + (checkedCount > 0 ? validPct + "%" : "N/A") + ")",
                         "",
                         "Errors:                 " + errors.length + "  (specification violations)",
                         "Warnings:               " + warnings.length + "  (weak modeling patterns)",

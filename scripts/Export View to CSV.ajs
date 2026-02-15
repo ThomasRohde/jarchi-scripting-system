@@ -103,9 +103,11 @@ load(__DIR__ + "lib/resolveSelection.js");
             seenRels[concept.id] = true;
 
             var sourceName = concept.source ? (concept.source.name || "") : "";
+            var sourceId = concept.source ? concept.source.id : "";
             var targetName = concept.target ? (concept.target.name || "") : "";
+            var targetId = concept.target ? concept.target.id : "";
             var relName = concept.name || "";
-            relRows.push([sourceName, concept.type, targetName, relName, concept.id]);
+            relRows.push([sourceName, sourceId, concept.type, targetName, targetId, relName, concept.id]);
         });
 
         // Write elements CSV
@@ -115,7 +117,7 @@ load(__DIR__ + "lib/resolveSelection.js");
 
         // Write relationships CSV
         var relPath = outputDir + File.separator + safeName + "_relationships.csv";
-        writeCsv(relPath, ["Source", "Type", "Target", "Name", "ID"], relRows);
+        writeCsv(relPath, ["Source", "Source ID", "Type", "Target", "Target ID", "Name", "ID"], relRows);
         log.detail("  Relationships: " + relPath);
 
         log.success("Exported " + elementRows.length + " elements and " + relRows.length + " relationships.");

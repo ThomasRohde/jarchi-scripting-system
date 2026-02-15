@@ -154,7 +154,7 @@ load(__DIR__ + "lib/requireModel.js");
      * Build a dry-run summary describing what the merge would do.
      * @returns {Object} { summary: string, actions: Array }
      */
-    function buildMergePreview(groups, mergePolicy) {
+    function buildMergePreview(groups, mergePolicy, docDelimiter) {
         var totalRewired = 0;
         var totalViewRefs = 0;
         var totalPropsMerged = 0;
@@ -181,20 +181,24 @@ load(__DIR__ + "lib/requireModel.js");
                 totalViewRefs += objCount;
 
                 // Properties to merge
-                var propKeys = dup.prop();
-                if (propKeys) {
-                    for (var pk = 0; pk < propKeys.length; pk++) {
-                        if (mergePolicy === "fill" && canonical.prop(propKeys[pk])) continue;
-                        totalPropsMerged++;
+                if (mergePolicy !== "canonical") {
+                    var propKeys = dup.prop();
+                    if (propKeys) {
+                        for (var pk = 0; pk < propKeys.length; pk++) {
+                            if (mergePolicy === "fill" && canonical.prop(propKeys[pk])) continue;
+                            totalPropsMerged++;
+                        }
                     }
                 }
 
                 // Documentation
-                var dupDoc = dup.documentation;
-                if (dupDoc && dupDoc.trim()) {
-                    var canonDoc = canonical.documentation || "";
-                    if (dupDoc.trim() !== canonDoc.trim()) {
-                        totalDocAppended++;
+                if (docDelimiter !== null) {
+                    var dupDoc = dup.documentation;
+                    if (dupDoc && dupDoc.trim()) {
+                        var canonDoc = canonical.documentation || "";
+                        if (dupDoc.trim() !== canonDoc.trim()) {
+                            totalDocAppended++;
+                        }
                     }
                 }
 
@@ -302,38 +306,37 @@ load(__DIR__ + "lib/requireModel.js");
                 });
 
                 // 3. Merge properties
-                var propKeys = dup.prop();
-                if (propKeys) {
-                    for (var pk = 0; pk < propKeys.length; pk++) {
-                        var key = propKeys[pk];
-                        var dupVal = dup.prop(key);
-                        var canonVal = canonical.prop(key);
+                // "canonical" = ignore all duplicate properties; "fill" = add missing only
+                if (mergePolicy !== "canonical") {
+                    var propKeys = dup.prop();
+                    if (propKeys) {
+                        for (var pk = 0; pk < propKeys.length; pk++) {
+                            var key = propKeys[pk];
+                            var dupVal = dup.prop(key);
+                            var canonVal = canonical.prop(key);
 
-                        if (mergePolicy === "canonical" && canonVal) {
-                            // Canonical wins — skip if canonical already has this property
-                            continue;
+                            if (mergePolicy === "fill" && canonVal) {
+                                continue;
+                            }
+                            canonical.prop(key, dupVal);
+                            stats.props++;
                         }
-                        if (mergePolicy === "fill" && canonVal) {
-                            // Fill-missing — skip if canonical already has a value
-                            continue;
-                        }
-                        // Set on canonical (canonical-wins mode overwrites, fill mode only fills gaps)
-                        canonical.prop(key, dupVal);
-                        stats.props++;
                     }
                 }
 
-                // 4. Append documentation
-                var dupDoc = dup.documentation;
-                if (dupDoc && dupDoc.trim()) {
-                    var canonDoc = canonical.documentation || "";
-                    if (dupDoc.trim() !== canonDoc.trim()) {
-                        if (canonDoc.trim()) {
-                            canonical.documentation = canonDoc + docDelimiter + dupDoc;
-                        } else {
-                            canonical.documentation = dupDoc;
+                // 4. Append documentation (skip if "No append" was selected)
+                if (docDelimiter !== null) {
+                    var dupDoc = dup.documentation;
+                    if (dupDoc && dupDoc.trim()) {
+                        var canonDoc = canonical.documentation || "";
+                        if (dupDoc.trim() !== canonDoc.trim()) {
+                            if (canonDoc.trim()) {
+                                canonical.documentation = canonDoc + docDelimiter + dupDoc;
+                            } else {
+                                canonical.documentation = dupDoc;
+                            }
+                            stats.docs++;
                         }
-                        stats.docs++;
                     }
                 }
 
@@ -624,7 +627,7 @@ load(__DIR__ + "lib/requireModel.js");
         // Dry run preview
         // =================================================================
 
-        var preview = buildMergePreview(groups, mergePolicy);
+        var preview = buildMergePreview(groups, mergePolicy, docDelimiter);
         log.info(preview.summary);
 
         var confirmMsg = preview.summary +
