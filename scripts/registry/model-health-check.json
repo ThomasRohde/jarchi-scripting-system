@@ -1,0 +1,28 @@
+{
+  "id": "analysis.model_health_check",
+  "title": "Model Health Check",
+  "category": ["Analysis"],
+  "order": 10,
+
+  "script": {
+    "path": "Model Health Check.ajs"
+  },
+
+  "description": "Runs a suite of health checks on the model: unnamed elements, missing documentation, unused elements, empty views, and duplicate elements. Displays results in a tabbed dialog.",
+  "tags": ["analysis", "health", "validation", "quality", "unnamed", "duplicates", "unused"],
+
+  "help": {
+    "markdown_path": "../help/model-health-check.md"
+  },
+
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

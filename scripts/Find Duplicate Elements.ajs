@@ -158,6 +158,7 @@ load(__DIR__ + "lib/requireModel.js");
                     String(el.rels),
                     el.id
                 ]));
+                item.setData("id", el.id);
                 if (colorToggle && altColor) {
                     item.setBackground(altColor);
                 }
@@ -224,10 +225,36 @@ load(__DIR__ + "lib/requireModel.js");
 
                     populateTable();
 
+                    // Double-click to reveal element in model tree
+                    tableWidget.addListener(SWT.MouseDoubleClick, function () {
+                        var sel = tableWidget.getSelection();
+                        if (sel.length === 0) return;
+                        var id = sel[0].getData("id");
+                        if (!id) return;
+                        try {
+                            var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+                            var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+                            var StructuredSelection = Java.type("org.eclipse.jface.viewers.StructuredSelection");
+                            var PlatformUI = Java.type("org.eclipse.ui.PlatformUI");
+                            var eObject = null;
+                            var models = IEditorModelManager.INSTANCE.getModels();
+                            for (var m = 0; m < models.size(); m++) {
+                                eObject = ArchimateModelUtils.getObjectByID(models.get(m), id);
+                                if (eObject) break;
+                            }
+                            if (!eObject) return;
+                            var page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+                            var treeView = page.showView("com.archimatetool.editor.treeModelView");
+                            treeView.getViewer().setSelection(new StructuredSelection(eObject), true);
+                        } catch (e) {
+                            log.error("Navigation failed: " + e.toString());
+                        }
+                    });
+
                     var summaryLabel = new Label(container, SWT.NONE);
                     summaryLabel.setText(
                         groupCount + " duplicate group" + (groupCount !== 1 ? "s" : "") +
-                        "  |  Click column headers to sort"
+                        "  |  Double-click to reveal in model tree  |  Click headers to sort"
                     );
                     GridDataFactory.fillDefaults().grab(true, false).applyTo(summaryLabel);
 

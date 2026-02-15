@@ -1,0 +1,28 @@
+{
+  "id": "editing.color_by_property",
+  "title": "Color by Property",
+  "category": ["Editing"],
+  "order": 30,
+
+  "script": {
+    "path": "Color by Property.ajs"
+  },
+
+  "description": "Colors diagram objects on the active view based on a property value. Each unique value gets a distinct color from a built-in palette. Shows a configuration dialog to select the property and preview assignments.",
+  "tags": ["editing", "color", "property", "visual", "style", "view"],
+
+  "help": {
+    "markdown_path": "../help/color-by-property.md"
+  },
+
+  "run": {
+    "danger_level": "medium",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": true
+  }
+}

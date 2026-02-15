@@ -33,8 +33,8 @@ load(__DIR__ + "lib/resolveSelection.js");
                 window.alert("Please select diagram objects or a view first.");
                 return;
             }
-            objects = $(view).find("diagram-model-object");
-            connections = $(view).find("diagram-model-connection");
+            objects = $(view).find("element");
+            connections = $(view).find("relationship");
             source = "entire view '" + (view.name || "unnamed") + "'";
         } else {
             source = objects.size() + " object(s) and " + connections.size() + " connection(s)";
@@ -47,19 +47,17 @@ load(__DIR__ + "lib/resolveSelection.js");
 
         // Reset diagram objects
         objects.each(function (obj) {
-            obj.fillColor = null;       // Reset to default fill
-            obj.fontColor = null;       // Reset to default font color
-            obj.font = null;            // Reset to default font
-            obj.lineColor = null;       // Reset to default line color
-            obj.opacity = 255;          // Fully opaque
-            obj.outlineOpacity = 255;   // Fully opaque outline
+            obj.fillColor = null;
+            obj.fontColor = null;
+            obj.lineColor = null;
+            obj.opacity = 255;
+            obj.outlineOpacity = 255;
             objectCount++;
         });
 
         // Reset connections
         connections.each(function (conn) {
             conn.fontColor = null;
-            conn.font = null;
             conn.lineColor = null;
             conn.lineWidth = 1;
             connectionCount++;

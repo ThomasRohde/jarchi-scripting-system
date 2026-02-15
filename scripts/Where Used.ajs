@@ -67,22 +67,16 @@ load(__DIR__ + "lib/resolveSelection.js");
                     viewId: ""
                 });
             } else {
-                viewRefs.each(function (diagramObj) {
-                    // Navigate up to the view
-                    var view = $(diagramObj).parents("archimate-diagram-model").first()
-                            || $(diagramObj).parents("sketch-model").first()
-                            || $(diagramObj).parents("canvas-model").first();
-
-                    if (view) {
-                        var viewName = view.name && view.name.trim() ? view.name : "(unnamed view)";
-                        rows.push({
-                            elementName: elementName,
-                            elementType: element.type,
-                            viewName: viewName,
-                            viewType: view.type,
-                            viewId: view.id
-                        });
-                    }
+                viewRefs.each(function (view) {
+                    // viewRefs() returns views directly, not diagram objects
+                    var viewName = view.name && view.name.trim() ? view.name : "(unnamed view)";
+                    rows.push({
+                        elementName: elementName,
+                        elementType: element.type,
+                        viewName: viewName,
+                        viewType: view.type,
+                        viewId: view.id
+                    });
                 });
             }
         });
@@ -144,6 +138,7 @@ load(__DIR__ + "lib/resolveSelection.js");
                     r.viewName,
                     r.viewType
                 ]));
+                item.setData("viewId", r.viewId);
             }
         }
 
@@ -203,8 +198,20 @@ load(__DIR__ + "lib/resolveSelection.js");
 
                     populateTable();
 
+                    // Double-click to open view
+                    tableWidget.addListener(SWT.MouseDoubleClick, function () {
+                        var sel = tableWidget.getSelection();
+                        if (sel.length === 0) return;
+                        var viewId = sel[0].getData("viewId");
+                        if (!viewId) return;
+                        try {
+                            var view = $("#" + viewId).first();
+                            if (view) view.openInUI();
+                        } catch (e) { /* ignore navigation errors */ }
+                    });
+
                     var summaryLabel = new Label(container, SWT.NONE);
-                    summaryLabel.setText(rows.length + " row(s)  |  Click column headers to sort");
+                    summaryLabel.setText(rows.length + " row(s)  |  Double-click to open view  |  Click headers to sort");
                     GridDataFactory.fillDefaults().grab(true, false).applyTo(summaryLabel);
 
                     return area;

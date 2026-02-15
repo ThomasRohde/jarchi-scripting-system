@@ -1,0 +1,380 @@
+/**
+ * @name Color by Property
+ * @description Colors diagram objects on the active view based on a property value.
+ * Each unique property value gets a distinct color from a built-in palette.
+ * Double-click any row in the preview table to open a native color picker.
+ * @version 1.1.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Combo = swtImports.Combo;
+    var Button = swtImports.Button;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var Color = swtImports.Color;
+    var Display = swtImports.Display;
+    var ColorDialog = Java.type("org.eclipse.swt.widgets.ColorDialog");
+    var RGB = Java.type("org.eclipse.swt.graphics.RGB");
+
+    // 12-color palette for distinct visual separation (defaults)
+    var PALETTE = [
+        "#4E79A7", "#F28E2B", "#E15759", "#76B7B2",
+        "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7",
+        "#9C755F", "#BAB0AC", "#86BCB6", "#D37295"
+    ];
+
+    var GRAY = "#C0C0C0";
+    var NO_VALUE_KEY = "\x00__no_value__";
+
+    try {
+        requireModel();
+        log.header("Color by Property");
+
+        // Get active view
+        var view = resolveSelection.activeView();
+        if (!view) {
+            window.alert("Please open a view or select a view in the model tree.");
+            return;
+        }
+
+        log.info("View: " + (view.name || "(unnamed)"));
+
+        // =================================================================
+        // Scan diagram objects for property names
+        // =================================================================
+
+        var propertyNames = {};
+        var diagramObjects = $(view).find("element");
+
+        // Collect concept IDs present in this view
+        var viewConceptIds = {};
+        diagramObjects.each(function (dObj) {
+            if (dObj.concept) viewConceptIds[dObj.concept.id] = true;
+        });
+
+        // Scan properties on full jArchi element proxies
+        $("element").each(function (el) {
+            if (!viewConceptIds[el.id]) return;
+            var keys = el.prop();
+            if (keys) {
+                for (var p = 0; p < keys.length; p++) {
+                    if (keys[p]) {
+                        propertyNames[keys[p]] = true;
+                    }
+                }
+            }
+        });
+
+        var propNameList = Object.keys(propertyNames).sort();
+
+        if (propNameList.length === 0) {
+            window.alert("No properties found on elements in this view.");
+            return;
+        }
+
+        log.info("Found " + propNameList.length + " property names.");
+
+        // =================================================================
+        // Color helpers
+        // =================================================================
+
+        function hexToRgb(hex) {
+            return {
+                r: parseInt(hex.substring(1, 3), 16),
+                g: parseInt(hex.substring(3, 5), 16),
+                b: parseInt(hex.substring(5, 7), 16)
+            };
+        }
+
+        function rgbToHex(r, g, b) {
+            function toHex(n) {
+                var h = Math.round(n).toString(16);
+                return h.length === 1 ? "0" + h : h;
+            }
+            return "#" + toHex(r) + toHex(g) + toHex(b);
+        }
+
+        function hexToColor(display, hex) {
+            var c = hexToRgb(hex);
+            return new Color(display, c.r, c.g, c.b);
+        }
+
+        // =================================================================
+        // Build unique values for a property and assign default colors
+        // =================================================================
+
+        function getUniqueValues(propName) {
+            var valueSet = {};
+            $("element").each(function (el) {
+                if (!viewConceptIds[el.id]) return;
+                var val = el.prop(propName);
+                if (val !== null && val !== undefined && String(val).trim()) {
+                    valueSet[String(val).trim()] = true;
+                }
+            });
+            return Object.keys(valueSet).sort();
+        }
+
+        // =================================================================
+        // Color mapping state — persists user choices across refreshes
+        // =================================================================
+
+        // colorMapping: { propertyValue -> hexColor }
+        var colorMapping = {};
+
+        function rebuildMapping(propName) {
+            var values = getUniqueValues(propName);
+            var newMapping = {};
+            for (var v = 0; v < values.length; v++) {
+                // Preserve user-picked colors, else assign from palette
+                newMapping[values[v]] = colorMapping[values[v]] || PALETTE[v % PALETTE.length];
+            }
+            colorMapping = newMapping;
+        }
+
+        // =================================================================
+        // Dialog
+        // =================================================================
+
+        var selectedProp = propNameList[0];
+        var includeEmpty = false;
+        var previewTable = null;
+        var allocatedColors = [];
+
+        // Initial mapping
+        rebuildMapping(selectedProp);
+
+        function disposeColors() {
+            for (var dc = 0; dc < allocatedColors.length; dc++) {
+                if (allocatedColors[dc] && !allocatedColors[dc].isDisposed()) {
+                    allocatedColors[dc].dispose();
+                }
+            }
+            allocatedColors = [];
+        }
+
+        function refreshPreview(display) {
+            if (!previewTable || previewTable.isDisposed()) return;
+            disposeColors();
+            previewTable.removeAll();
+
+            var values = Object.keys(colorMapping).filter(function (k) { return k !== NO_VALUE_KEY; }).sort();
+            for (var v = 0; v < values.length; v++) {
+                var hex = colorMapping[values[v]];
+                var item = new TableItem(previewTable, SWT.NONE);
+                item.setText(0, values[v]);
+                item.setText(1, hex);
+                item.setData("valueKey", values[v]);
+                var color = hexToColor(display, hex);
+                allocatedColors.push(color);
+                item.setBackground(1, color);
+            }
+
+            if (includeEmpty) {
+                var emptyHex = colorMapping[NO_VALUE_KEY] || GRAY;
+                var grayItem = new TableItem(previewTable, SWT.NONE);
+                grayItem.setText(0, "(no value)");
+                grayItem.setText(1, emptyHex);
+                grayItem.setData("valueKey", NO_VALUE_KEY);
+                var grayColor = hexToColor(display, emptyHex);
+                allocatedColors.push(grayColor);
+                grayItem.setBackground(1, grayColor);
+            }
+        }
+
+        function openColorPicker(parentShell, display, valueKey, currentHex) {
+            var dlg = new ColorDialog(parentShell);
+            dlg.setText("Pick color for: " + (valueKey === NO_VALUE_KEY ? "(no value)" : valueKey));
+            var c = hexToRgb(currentHex);
+            dlg.setRGB(new RGB(c.r, c.g, c.b));
+            var result = dlg.open();
+            if (result) {
+                var newHex = rgbToHex(result.red, result.green, result.blue);
+                colorMapping[valueKey] = newHex;
+                refreshPreview(display);
+            }
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Color by Property");
+                    newShell.setMinimumSize(500, 450);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+                    var display = Display.getCurrent();
+
+                    myDialog.dialog.setTitle("Color by Property");
+                    myDialog.dialog.setMessage(
+                        "Select a property, then double-click any row to pick a custom color."
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // Property selector
+                    var propLabel = new Label(container, SWT.NONE);
+                    propLabel.setText("Property:");
+                    GridDataFactory.fillDefaults().align(SWT.BEGINNING, SWT.CENTER).applyTo(propLabel);
+
+                    var combo = new Combo(container, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    for (var pi = 0; pi < propNameList.length; pi++) {
+                        combo.add(propNameList[pi]);
+                    }
+                    combo.select(0);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(combo);
+
+                    combo.addSelectionListener({
+                        widgetSelected: function () {
+                            selectedProp = propNameList[combo.getSelectionIndex()];
+                            rebuildMapping(selectedProp);
+                            refreshPreview(display);
+                        },
+                        widgetDefaultSelected: function () {}
+                    });
+
+                    // Include empty checkbox (spans 2 columns)
+                    var checkbox = new Button(container, SWT.CHECK);
+                    checkbox.setText("Color elements without this property (gray)");
+                    checkbox.setSelection(false);
+                    GridDataFactory.fillDefaults().span(2, 1).applyTo(checkbox);
+
+                    checkbox.addSelectionListener({
+                        widgetSelected: function () {
+                            includeEmpty = checkbox.getSelection();
+                            refreshPreview(display);
+                        },
+                        widgetDefaultSelected: function () {}
+                    });
+
+                    // Hint label (spans 2 columns)
+                    var hintLabel = new Label(container, SWT.NONE);
+                    hintLabel.setText("Double-click a row to change its color:");
+                    GridDataFactory.fillDefaults().span(2, 1).applyTo(hintLabel);
+
+                    // Preview table (spans 2 columns)
+                    previewTable = new Table(container, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL);
+                    previewTable.setHeaderVisible(true);
+                    previewTable.setLinesVisible(true);
+                    GridDataFactory.fillDefaults().grab(true, true).span(2, 1).applyTo(previewTable);
+
+                    var valCol = new TableColumn(previewTable, SWT.NONE);
+                    valCol.setText("Value");
+                    valCol.setWidth(250);
+
+                    var colorCol = new TableColumn(previewTable, SWT.NONE);
+                    colorCol.setText("Color");
+                    colorCol.setWidth(120);
+
+                    // Double-click to open color picker
+                    previewTable.addListener(SWT.MouseDoubleClick, function () {
+                        var sel = previewTable.getSelection();
+                        if (sel.length === 0) return;
+                        var item = sel[0];
+                        var valueKey = item.getData("valueKey");
+                        var currentHex = colorMapping[valueKey] || GRAY;
+                        openColorPicker(previewTable.getShell(), display, valueKey, currentHex);
+                    });
+
+                    refreshPreview(display);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Apply", true);
+                    myDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", false);
+                },
+
+                close: function () {
+                    disposeColors();
+                    return Java.super(myDialog.dialog).close();
+                },
+
+                getInitialSize: function () {
+                    return new Point(520, 520);
+                }
+            })
+        };
+
+        myDialog.dialog.setHelpAvailable(false);
+        var result = myDialog.dialog.open();
+
+        if (result !== 0) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // =================================================================
+        // Apply colors
+        // =================================================================
+
+        var colored = 0;
+        var skippedCount = 0;
+
+        // Build concept ID → property value lookup
+        var conceptPropValues = {};
+        $("element").each(function (el) {
+            if (!viewConceptIds[el.id]) return;
+            var val = el.prop(selectedProp);
+            conceptPropValues[el.id] = (val !== null && val !== undefined) ? String(val).trim() : "";
+        });
+
+        diagramObjects.each(function (dObj) {
+            if (!dObj.concept) return;
+            var trimmed = conceptPropValues[dObj.concept.id] || "";
+
+            if (trimmed && colorMapping[trimmed]) {
+                dObj.fillColor = colorMapping[trimmed];
+                colored++;
+            } else if (includeEmpty && colorMapping[NO_VALUE_KEY]) {
+                dObj.fillColor = colorMapping[NO_VALUE_KEY];
+                colored++;
+            } else if (includeEmpty) {
+                dObj.fillColor = GRAY;
+                colored++;
+            } else {
+                skippedCount++;
+            }
+        });
+
+        var distinctValues = Object.keys(colorMapping).length;
+        log.success("Colored " + colored + " objects across " + distinctValues + " distinct values.");
+        if (skippedCount > 0) {
+            log.detail("  " + skippedCount + " objects skipped (no value for '" + selectedProp + "').");
+        }
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

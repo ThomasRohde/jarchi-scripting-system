@@ -1,0 +1,28 @@
+{
+  "id": "utilities.import_from_csv",
+  "title": "Import from CSV",
+  "category": ["Utilities"],
+  "order": 30,
+
+  "script": {
+    "path": "Import from CSV.ajs"
+  },
+
+  "description": "Imports elements or relationships from a CSV file into the model. Accepts the same format produced by 'Export View to CSV'. Auto-detects element vs. relationship format from the header row.",
+  "tags": ["import", "csv", "elements", "relationships", "data"],
+
+  "help": {
+    "markdown_path": "../help/import-from-csv.md"
+  },
+
+  "run": {
+    "danger_level": "high",
+    "confirm_message": "This will create new elements or relationships in the model from a CSV file."
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

@@ -54,23 +54,17 @@ load(__DIR__ + "lib/resolveSelection.js");
                 log.warn(name + " (" + element.type + ") — not on any view");
             } else if (viewCount === 1) {
                 singleViewCount++;
-                // viewRefs() returns diagram objects, navigate to parent view
-                var diagramObj = refs.first();
-                var parentView = $(diagramObj).parents("archimate-diagram-model").first()
-                        || $(diagramObj).parents("sketch-model").first()
-                        || $(diagramObj).parents("canvas-model").first();
-                var viewName = parentView ? (parentView.name || "-- unnamed view --") : "-- unknown view --";
+                // viewRefs() returns views directly
+                var view = refs.first();
+                var viewName = view.name || "-- unnamed view --";
                 log.info(name + " (" + element.type + ") — 1 view:");
                 log.detail("  " + viewName);
             } else {
                 multiViewCount++;
                 log.info(name + " (" + element.type + ") — " + viewCount + " views:");
-                refs.each(function (diagramObj) {
-                    // viewRefs() returns diagram objects, navigate to parent view
-                    var parentView = $(diagramObj).parents("archimate-diagram-model").first()
-                            || $(diagramObj).parents("sketch-model").first()
-                            || $(diagramObj).parents("canvas-model").first();
-                    var vName = parentView ? (parentView.name || "-- unnamed view --") : "-- unknown view --";
+                refs.each(function (view) {
+                    // viewRefs() returns views directly
+                    var vName = view.name || "-- unnamed view --";
                     log.detail("  " + vName);
                 });
             }

@@ -10,8 +10,9 @@ Scans the model for elements that are not placed on any view. Lists orphaned ele
 
 1. Run the script from the menu (no selection needed)
 2. Review unused elements in the table
-3. Click column headers to sort
-4. Click **Close** when done
+3. **Double-click** any row to reveal the element in the model tree
+4. Click column headers to sort
+5. Click **Close** when done
 
 If all elements appear on at least one view, an information dialog is shown instead.
 
@@ -52,9 +53,13 @@ Elements with 0 relationships have their **Rels** column text displayed in gray,
 - The Rels column sorts numerically; all other columns sort alphabetically
 - Default sort is by Type ascending
 
+### Double-Click Navigation
+
+Double-click any row to select and reveal the element in the model tree. This makes it easy to inspect or delete individual elements without searching for them manually.
+
 ### Footer
 
-A summary label shows the total element count and a reminder to click column headers for sorting.
+A summary label shows the total element count and a reminder about double-click navigation and column sorting.
 
 ## Interpreting Results
 

@@ -10,8 +10,9 @@ Scans the model for elements that share the same name and type, displaying group
 
 1. Run the script from the menu (no selection needed)
 2. Review duplicate groups in the table
-3. Click column headers to sort
-4. Click **Close** when done
+3. **Double-click** any row to reveal the element in the model tree
+4. Click column headers to sort
+5. Click **Close** when done
 
 If no duplicates are found, an information dialog is shown instead.
 
@@ -53,9 +54,13 @@ Rows belonging to the same duplicate group share an alternating background color
 - Numeric columns (Copies, Views, Rels) sort descending by default
 - Text columns (Type, Name, ID) sort ascending by default
 
+### Double-Click Navigation
+
+Double-click any row to select and reveal the element in the model tree. This is useful for inspecting a specific duplicate before deciding which copy to keep.
+
 ### Footer
 
-A summary label shows the total number of duplicate groups and a reminder to click column headers for sorting.
+A summary label shows the total number of duplicate groups and a reminder about double-click navigation and column sorting.
 
 ## Interpreting Results
 

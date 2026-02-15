@@ -1,0 +1,290 @@
+/**
+ * @name Import from CSV
+ * @description Imports elements and/or relationships from CSV files into the model.
+ * Accepts the same CSV format produced by "Export View to CSV". Auto-detects
+ * whether the file contains elements or relationships based on the header row.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    var BufferedReader = Java.type("java.io.BufferedReader");
+    var FileReader = Java.type("java.io.FileReader");
+
+    try {
+        requireModel();
+        log.header("Import from CSV");
+
+        // =================================================================
+        // CSV parser — handles quoted fields, commas inside quotes, ""
+        // =================================================================
+
+        function parseCsvLine(line) {
+            var fields = [];
+            var current = "";
+            var inQuotes = false;
+            var i = 0;
+
+            while (i < line.length) {
+                var ch = line.charAt(i);
+                if (inQuotes) {
+                    if (ch === '"') {
+                        if (i + 1 < line.length && line.charAt(i + 1) === '"') {
+                            current += '"';
+                            i += 2;
+                        } else {
+                            inQuotes = false;
+                            i++;
+                        }
+                    } else {
+                        current += ch;
+                        i++;
+                    }
+                } else {
+                    if (ch === '"') {
+                        inQuotes = true;
+                        i++;
+                    } else if (ch === ',') {
+                        fields.push(current);
+                        current = "";
+                        i++;
+                    } else {
+                        current += ch;
+                        i++;
+                    }
+                }
+            }
+            fields.push(current);
+            return fields;
+        }
+
+        // =================================================================
+        // Read file
+        // =================================================================
+
+        var filePath = window.promptOpenFile({
+            title: "Select CSV file to import",
+            filterExtensions: ["*.csv"],
+            filterNames: ["CSV Files"]
+        });
+        if (!filePath) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        log.info("Reading: " + filePath);
+
+        var lines = [];
+        var reader = new BufferedReader(new FileReader(filePath));
+        try {
+            var line;
+            while ((line = reader.readLine()) !== null) {
+                lines.push(String(line));
+            }
+        } finally {
+            reader.close();
+        }
+
+        if (lines.length < 2) {
+            window.alert("CSV file is empty or has only a header row.");
+            return;
+        }
+
+        // =================================================================
+        // Detect format from header
+        // =================================================================
+
+        var header = parseCsvLine(lines[0]);
+        var headerNorm = header.map(function (h) { return h.trim().toLowerCase(); });
+
+        var isElements = headerNorm[0] === "name" && headerNorm[1] === "type";
+        var isRelationships = headerNorm[0] === "source" && headerNorm[1] === "type" && headerNorm[2] === "target";
+
+        if (!isElements && !isRelationships) {
+            window.alert(
+                "Unrecognized CSV format.\n\n" +
+                "Expected element headers: Name,Type,ID,Documentation\n" +
+                "Expected relationship headers: Source,Type,Target,Name,ID\n\n" +
+                "Found: " + header.join(",")
+            );
+            return;
+        }
+
+        // =================================================================
+        // Import elements
+        // =================================================================
+
+        var created = 0;
+        var skipped = 0;
+        var failed = 0;
+
+        if (isElements) {
+            log.info("Detected element CSV format. Importing " + (lines.length - 1) + " rows...");
+
+            // Build column index map
+            var nameIdx = headerNorm.indexOf("name");
+            var typeIdx = headerNorm.indexOf("type");
+            var idIdx = headerNorm.indexOf("id");
+            var docIdx = headerNorm.indexOf("documentation");
+
+            for (var i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                var fields = parseCsvLine(lines[i]);
+
+                var elName = nameIdx >= 0 ? (fields[nameIdx] || "").trim() : "";
+                var elType = typeIdx >= 0 ? (fields[typeIdx] || "").trim() : "";
+                var elId = idIdx >= 0 ? (fields[idIdx] || "").trim() : "";
+                var elDoc = docIdx >= 0 ? (fields[docIdx] || "").trim() : "";
+
+                if (!elType) {
+                    log.warn("Row " + (i + 1) + ": missing type, skipping.");
+                    failed++;
+                    continue;
+                }
+
+                // Check for duplicate by ID
+                if (elId) {
+                    var existing = $("#" + elId);
+                    if (existing.size() > 0) {
+                        skipped++;
+                        continue;
+                    }
+                }
+
+                // Check for duplicate by type + name (if no ID)
+                if (!elId && elName) {
+                    var found = false;
+                    $("element").each(function (existing) {
+                        if (!found && existing.type === elType &&
+                            existing.name && existing.name.trim().toLowerCase() === elName.toLowerCase()) {
+                            found = true;
+                        }
+                    });
+                    if (found) {
+                        skipped++;
+                        continue;
+                    }
+                }
+
+                try {
+                    var newEl = model.createElement(elType, elName);
+                    if (elDoc) newEl.documentation = elDoc;
+                    created++;
+                } catch (e) {
+                    log.warn("Row " + (i + 1) + ": failed to create " + elType + " '" + elName + "' — " + e.message);
+                    failed++;
+                }
+            }
+        }
+
+        // =================================================================
+        // Import relationships
+        // =================================================================
+
+        if (isRelationships) {
+            log.info("Detected relationship CSV format. Importing " + (lines.length - 1) + " rows...");
+
+            var srcIdx = headerNorm.indexOf("source");
+            var relTypeIdx = headerNorm.indexOf("type");
+            var tgtIdx = headerNorm.indexOf("target");
+            var relNameIdx = headerNorm.indexOf("name");
+            var relIdIdx = headerNorm.indexOf("id");
+
+            // Build element lookup by ID and by name
+            var elemById = {};
+            var elemByName = {};
+            $("element").each(function (el) {
+                elemById[el.id] = el;
+                if (el.name && el.name.trim()) {
+                    var key = el.name.trim().toLowerCase();
+                    if (!elemByName[key]) elemByName[key] = el;
+                }
+            });
+
+            function findElement(value) {
+                if (!value) return null;
+                value = value.trim();
+                // Try as ID first
+                if (elemById[value]) return elemById[value];
+                // Try by ID lookup
+                var byId = $("#" + value);
+                if (byId.size() > 0) return byId.first();
+                // Try by name
+                var key = value.toLowerCase();
+                if (elemByName[key]) return elemByName[key];
+                return null;
+            }
+
+            for (var r = 1; r < lines.length; r++) {
+                if (!lines[r].trim()) continue;
+                var rFields = parseCsvLine(lines[r]);
+
+                var srcVal = srcIdx >= 0 ? (rFields[srcIdx] || "").trim() : "";
+                var relType = relTypeIdx >= 0 ? (rFields[relTypeIdx] || "").trim() : "";
+                var tgtVal = tgtIdx >= 0 ? (rFields[tgtIdx] || "").trim() : "";
+                var relName = relNameIdx >= 0 ? (rFields[relNameIdx] || "").trim() : "";
+                var relId = relIdIdx >= 0 ? (rFields[relIdIdx] || "").trim() : "";
+
+                if (!relType || !srcVal || !tgtVal) {
+                    log.warn("Row " + (r + 1) + ": missing source, type, or target, skipping.");
+                    failed++;
+                    continue;
+                }
+
+                // Check for duplicate by ID
+                if (relId) {
+                    var existingRel = $("#" + relId);
+                    if (existingRel.size() > 0) {
+                        skipped++;
+                        continue;
+                    }
+                }
+
+                var sourceEl = findElement(srcVal);
+                var targetEl = findElement(tgtVal);
+
+                if (!sourceEl) {
+                    log.warn("Row " + (r + 1) + ": source not found '" + srcVal + "', skipping.");
+                    failed++;
+                    continue;
+                }
+                if (!targetEl) {
+                    log.warn("Row " + (r + 1) + ": target not found '" + tgtVal + "', skipping.");
+                    failed++;
+                    continue;
+                }
+
+                try {
+                    var newRel = model.createRelationship(relType, relName, sourceEl, targetEl);
+                    created++;
+                } catch (e) {
+                    log.warn("Row " + (r + 1) + ": failed to create " + relType + " — " + e.message);
+                    failed++;
+                }
+            }
+        }
+
+        // =================================================================
+        // Summary
+        // =================================================================
+
+        var mode = isElements ? "elements" : "relationships";
+        var summary = "Created " + created + " " + mode + ", skipped " + skipped + " (duplicates), " + failed + " failed.";
+        log.success(summary);
+
+        window.alert("Import Complete\n\n" + summary);
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

@@ -1,0 +1,299 @@
+/**
+ * @name Model Health Check
+ * @description Runs a suite of health checks on the entire model and displays
+ * results in a tabbed dialog. Checks for unnamed elements, missing documentation,
+ * unused elements, empty views, and duplicate elements.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-14
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var TabFolder = swtImports.TabFolder;
+    var TabItem = swtImports.TabItem;
+
+    try {
+        requireModel();
+        log.header("Model Health Check");
+
+        // =================================================================
+        // Helper: create a Java String[] from a JS array
+        // =================================================================
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        // =================================================================
+        // Health checks
+        // =================================================================
+
+        // 1. Unnamed Elements
+        var unnamed = [];
+        $("element").each(function (el) {
+            if (!el.name || !el.name.trim()) {
+                unnamed.push([el.type, el.id]);
+            }
+        });
+
+        // 2. Missing Documentation
+        var missingDocs = [];
+        $("element").each(function (el) {
+            if (!el.documentation || !el.documentation.trim()) {
+                var name = el.name && el.name.trim() ? el.name : "(unnamed)";
+                missingDocs.push([el.type, name, el.id]);
+            }
+        });
+
+        // 3. Unused Elements
+        var unusedElements = [];
+        $("element").each(function (el) {
+            if ($(el).viewRefs().size() === 0) {
+                var name = el.name && el.name.trim() ? el.name : "(unnamed)";
+                unusedElements.push([el.type, name, el.id]);
+            }
+        });
+
+        // 4. Empty Views
+        var emptyViews = [];
+        $("view").each(function (view) {
+            if ($(view).children().size() === 0) {
+                var name = view.name && view.name.trim() ? view.name : "(unnamed)";
+                emptyViews.push([view.type, name, view.id]);
+            }
+        });
+
+        // 5. Duplicate Elements (same type + normalized name appearing 2+ times)
+        var duplicates = [];
+        var elementsByKey = {};
+        $("element").each(function (el) {
+            if (el.name && el.name.trim()) {
+                var key = el.type + "|" + el.name.trim().toLowerCase();
+                if (!elementsByKey[key]) elementsByKey[key] = [];
+                elementsByKey[key].push(el);
+            }
+        });
+        var dupeKeys = Object.keys(elementsByKey);
+        for (var k = 0; k < dupeKeys.length; k++) {
+            var group = elementsByKey[dupeKeys[k]];
+            if (group.length >= 2) {
+                for (var g = 0; g < group.length; g++) {
+                    duplicates.push([group[g].type, group[g].name, String(group.length) + " instances", group[g].id]);
+                }
+            }
+        }
+
+        // =================================================================
+        // Double-click navigation helpers
+        // =================================================================
+
+        function openView(id) {
+            try {
+                var view = $("#" + id).first();
+                if (view) view.openInUI();
+            } catch (e) { /* ignore */ }
+        }
+
+        function revealInTree(id) {
+            try {
+                var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+                var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+                var StructuredSelection = Java.type("org.eclipse.jface.viewers.StructuredSelection");
+                var PlatformUI = Java.type("org.eclipse.ui.PlatformUI");
+                var eObject = null;
+                var models = IEditorModelManager.INSTANCE.getModels();
+                for (var m = 0; m < models.size(); m++) {
+                    eObject = ArchimateModelUtils.getObjectByID(models.get(m), id);
+                    if (eObject) break;
+                }
+                if (!eObject) return;
+                var page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+                var treeView = page.showView("com.archimatetool.editor.treeModelView");
+                treeView.getViewer().setSelection(new StructuredSelection(eObject), true);
+            } catch (e) {
+                log.error("Navigation failed: " + e.toString());
+            }
+        }
+
+        var checks = [
+            { label: "Unnamed", data: unnamed, cols: [["Type", 180], ["ID", 300]], onDoubleClick: revealInTree },
+            { label: "Missing Docs", data: missingDocs, cols: [["Type", 150], ["Name", 200], ["ID", 200]], onDoubleClick: revealInTree },
+            { label: "Unused", data: unusedElements, cols: [["Type", 150], ["Name", 200], ["ID", 200]], onDoubleClick: revealInTree },
+            { label: "Empty Views", data: emptyViews, cols: [["Type", 180], ["Name", 200], ["ID", 200]], onDoubleClick: openView },
+            { label: "Duplicates", data: duplicates, cols: [["Type", 150], ["Name", 180], ["Count", 80], ["ID", 200]], onDoubleClick: revealInTree }
+        ];
+
+        var totalIssues = 0;
+        for (var ci = 0; ci < checks.length; ci++) {
+            totalIssues += checks[ci].data.length;
+            log.info(checks[ci].label + ": " + checks[ci].data.length);
+        }
+
+        // =================================================================
+        // Sortable table builder
+        // =================================================================
+
+        function buildTable(parent, data, colDefs, onDoubleClick) {
+            var sortCol = { value: 0 };
+            var ascending = { value: true };
+
+            var table = new Table(parent, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+            table.setHeaderVisible(true);
+            table.setLinesVisible(true);
+            GridDataFactory.fillDefaults().grab(true, true).applyTo(table);
+
+            for (var c = 0; c < colDefs.length; c++) {
+                var col = new TableColumn(table, SWT.NONE);
+                col.setText(colDefs[c][0]);
+                col.setWidth(colDefs[c][1]);
+                col.setData("colIndex", c);
+                col.addSelectionListener({
+                    widgetSelected: function (e) {
+                        var clicked = e.widget.getData("colIndex");
+                        if (clicked === sortCol.value) {
+                            ascending.value = !ascending.value;
+                        } else {
+                            sortCol.value = clicked;
+                            ascending.value = true;
+                        }
+                        table.setSortColumn(e.widget);
+                        table.setSortDirection(ascending.value ? SWT.UP : SWT.DOWN);
+                        populateTable(table, data, colDefs.length, sortCol.value, ascending.value);
+                    },
+                    widgetDefaultSelected: function () {}
+                });
+            }
+
+            table.setSortColumn(table.getColumn(0));
+            table.setSortDirection(SWT.UP);
+
+            populateTable(table, data, colDefs.length, sortCol.value, ascending.value);
+
+            // Double-click to navigate
+            if (onDoubleClick) {
+                table.addListener(SWT.MouseDoubleClick, function () {
+                    var sel = table.getSelection();
+                    if (sel.length === 0) return;
+                    var id = sel[0].getData("id");
+                    if (id) onDoubleClick(id);
+                });
+            }
+
+            return table;
+        }
+
+        function populateTable(table, data, numCols, sortCol, ascending) {
+            table.removeAll();
+            var sorted = data.slice().sort(function (a, b) {
+                var va = a[sortCol] || "";
+                var vb = b[sortCol] || "";
+                var cmp = String(va).localeCompare(String(vb));
+                return ascending ? cmp : -cmp;
+            });
+            for (var i = 0; i < sorted.length; i++) {
+                var item = new TableItem(table, SWT.NONE);
+                item.setText(javaStringArray(sorted[i]));
+                // Store ID (last column) for double-click navigation
+                item.setData("id", sorted[i][sorted[i].length - 1]);
+            }
+        }
+
+        // =================================================================
+        // Dialog
+        // =================================================================
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Model Health Check");
+                    newShell.setMinimumSize(600, 450);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+
+                    myDialog.dialog.setTitle("Model Health Check");
+                    myDialog.dialog.setMessage(
+                        checks.length + " checks completed \u2014 " + totalIssues + " issues found"
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // Tab folder
+                    var tabFolder = new TabFolder(container, SWT.NONE);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(tabFolder);
+
+                    for (var ti = 0; ti < checks.length; ti++) {
+                        var check = checks[ti];
+                        var tab = new TabItem(tabFolder, SWT.NONE);
+                        tab.setText(check.label + " (" + check.data.length + ")");
+
+                        var composite = new Composite(tabFolder, SWT.NONE);
+                        GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(composite);
+
+                        if (check.data.length > 0) {
+                            buildTable(composite, check.data, check.cols, check.onDoubleClick);
+                        } else {
+                            var noIssues = new Label(composite, SWT.NONE);
+                            noIssues.setText("No issues found.");
+                            GridDataFactory.fillDefaults().grab(true, true).applyTo(noIssues);
+                        }
+
+                        tab.setControl(composite);
+                    }
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                getInitialSize: function () {
+                    return new Point(700, 550);
+                }
+            })
+        };
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Model Health Check complete. " + totalIssues + " issues found.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

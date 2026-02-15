@@ -68,21 +68,26 @@
     function selectedConcepts(selector) {
         // Try direct model objects first (model tree selection)
         var result = selector ? $(selection).filter(selector) : $(selection).filter("element").add($(selection).filter("relationship"));
-        if (result.size() > 0) return result;
+
+        // Check if the filter returned actual model concepts (not diagram objects).
+        // When selecting on a view canvas, the filter may match diagram objects
+        // (jArchi resolves through to the concept type), but those lack viewRefs etc.
+        if (result.size() > 0 && !result.first().concept) return result;
 
         // Extract concepts from diagram objects/connections (view canvas selection)
         var seen = {};
+        var extracted = null;
         $(selection).each(function (item) {
             if (item.concept) {
                 if (!selector || $(item.concept).is(selector)) {
                     if (!seen[item.concept.id]) {
                         seen[item.concept.id] = true;
-                        result = result.add($(item.concept));
+                        extracted = extracted ? extracted.add($(item.concept)) : $(item.concept);
                     }
                 }
             }
         });
-        return result;
+        return extracted || result;
     }
 
     /**
