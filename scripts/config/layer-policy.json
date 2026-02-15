@@ -1,0 +1,136 @@
+{
+    "version": "1.0.0",
+    "description": "Default strict layering policy for ArchiMate models. Relationships should only cross to adjacent layers. Motivation and Implementation layers are cross-cutting.",
+
+    "layers": {
+        "strategy":       { "order": 5, "crossCutting": false },
+        "business":       { "order": 4, "crossCutting": false },
+        "application":    { "order": 3, "crossCutting": false },
+        "technology":     { "order": 2, "crossCutting": false },
+        "physical":       { "order": 1, "crossCutting": false },
+        "motivation":     { "order": 0, "crossCutting": true },
+        "implementation": { "order": 0, "crossCutting": true }
+    },
+
+    "elementTypeToLayer": {
+        "stakeholder": "motivation",
+        "driver": "motivation",
+        "assessment": "motivation",
+        "goal": "motivation",
+        "outcome": "motivation",
+        "principle": "motivation",
+        "requirement": "motivation",
+        "constraint": "motivation",
+        "meaning": "motivation",
+        "value": "motivation",
+
+        "resource": "strategy",
+        "capability": "strategy",
+        "course-of-action": "strategy",
+        "value-stream": "strategy",
+
+        "business-actor": "business",
+        "business-role": "business",
+        "business-collaboration": "business",
+        "business-interface": "business",
+        "business-process": "business",
+        "business-function": "business",
+        "business-interaction": "business",
+        "business-event": "business",
+        "business-service": "business",
+        "business-object": "business",
+        "contract": "business",
+        "representation": "business",
+        "product": "business",
+
+        "application-component": "application",
+        "application-collaboration": "application",
+        "application-interface": "application",
+        "application-function": "application",
+        "application-process": "application",
+        "application-interaction": "application",
+        "application-event": "application",
+        "application-service": "application",
+        "data-object": "application",
+
+        "node": "technology",
+        "device": "technology",
+        "system-software": "technology",
+        "technology-collaboration": "technology",
+        "technology-interface": "technology",
+        "path": "technology",
+        "communication-network": "technology",
+        "technology-function": "technology",
+        "technology-process": "technology",
+        "technology-interaction": "technology",
+        "technology-event": "technology",
+        "technology-service": "technology",
+        "artifact": "technology",
+
+        "equipment": "physical",
+        "facility": "physical",
+        "distribution-network": "physical",
+        "material": "physical",
+
+        "work-package": "implementation",
+        "deliverable": "implementation",
+        "implementation-event": "implementation",
+        "plateau": "implementation",
+        "gap": "implementation"
+    },
+
+    "allowedTransitions": [
+        { "from": "strategy",    "to": "business",    "direction": "both" },
+        { "from": "business",    "to": "application",  "direction": "both" },
+        { "from": "application", "to": "technology",   "direction": "both" },
+        { "from": "technology",  "to": "physical",     "direction": "both" }
+    ],
+
+    "sameLayerAlwaysAllowed": true,
+
+    "excludedRelationshipTypes": [
+        "association-relationship",
+        "specialization-relationship"
+    ],
+
+    "allowlist": [],
+
+    "mediationSuggestions": {
+        "business->technology": {
+            "description": "Business layer should not connect directly to Technology layer",
+            "suggestion": "Insert an Application layer mediator (e.g., Application Service or Application Component) between the business and technology elements.",
+            "mediatorTypes": ["application-service", "application-component", "application-function"],
+            "pattern": "Business Element -> [Application Service] -> Technology Element"
+        },
+        "strategy->application": {
+            "description": "Strategy layer should not connect directly to Application layer",
+            "suggestion": "Insert a Business layer mediator (e.g., Business Service or Business Process) to bridge strategy to application.",
+            "mediatorTypes": ["business-service", "business-process", "business-function"],
+            "pattern": "Strategy Element -> [Business Service] -> Application Element"
+        },
+        "strategy->technology": {
+            "description": "Strategy layer should not connect directly to Technology layer",
+            "suggestion": "Route through Business and Application layers.",
+            "mediatorTypes": ["business-service", "application-service"],
+            "pattern": "Strategy Element -> [Business Service] -> [Application Service] -> Technology Element"
+        },
+        "strategy->physical": {
+            "description": "Strategy layer should not connect directly to Physical layer",
+            "suggestion": "Route through Business, Application, and Technology layers.",
+            "mediatorTypes": ["business-service", "application-service", "technology-service"],
+            "pattern": "Strategy -> [Business] -> [Application] -> [Technology] -> Physical"
+        },
+        "business->physical": {
+            "description": "Business layer should not connect directly to Physical layer",
+            "suggestion": "Insert Application and Technology layer mediators.",
+            "mediatorTypes": ["application-service", "technology-service"],
+            "pattern": "Business Element -> [Application Service] -> [Technology Service] -> Physical Element"
+        },
+        "application->physical": {
+            "description": "Application layer should not connect directly to Physical layer",
+            "suggestion": "Insert a Technology layer mediator (e.g., Node, Device, or Technology Service).",
+            "mediatorTypes": ["technology-service", "node", "device"],
+            "pattern": "Application Element -> [Technology Service/Node] -> Physical Element"
+        }
+    }
+}

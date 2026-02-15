@@ -1,0 +1,23 @@
+{
+    "id": "analysis.strict_layer_violation_detector",
+    "title": "Strict Layer Violation Detector",
+    "category": ["Analysis"],
+    "order": 15,
+    "script": {
+        "path": "Strict Layer Violation Detector.ajs"
+    },
+    "description": "Detects cross-layer relationship violations based on a configurable layering policy. Reports prohibited direct links between non-adjacent ArchiMate layers with mediation suggestions.",
+    "tags": ["analysis", "layers", "governance", "compliance", "architecture", "violations", "quality"],
+    "help": {
+        "markdown_path": "../help/strict-layer-violation-detector.md"
+    },
+    "run": {
+        "danger_level": "low",
+        "confirm_message": ""
+    },
+    "selection": {
+        "types": [],
+        "min": 0,
+        "require_view": false
+    }
+}

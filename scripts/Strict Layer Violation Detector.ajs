@@ -1,0 +1,802 @@
+/**
+ * @name Strict Layer Violation Detector
+ * @description Detects cross-layer relationship violations based on a configurable layering
+ * policy. Reports prohibited direct links between non-adjacent ArchiMate layers with
+ * mediation suggestions. Results in a tabbed dialog with sortable tables, navigation, and CSV export.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-15
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/relationshipMatrix.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var TabFolder = swtImports.TabFolder;
+    var TabItem = swtImports.TabItem;
+    var Color = swtImports.Color;
+    var Display = swtImports.Display;
+
+    var FileWriter = Java.type("java.io.FileWriter");
+    var BufferedWriter = Java.type("java.io.BufferedWriter");
+    var File = Java.type("java.io.File");
+    var Files = Java.type("java.nio.file.Files");
+    var Paths = Java.type("java.nio.file.Paths");
+    var JString = Java.type("java.lang.String");
+
+    try {
+        requireModel();
+        log.header("Strict Layer Violation Detector");
+
+        // =================================================================
+        // Helpers
+        // =================================================================
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        function safeName(obj) {
+            if (!obj) return "(missing)";
+            return obj.name && obj.name.trim() ? obj.name : "(unnamed)";
+        }
+
+        function csvEscape(value) {
+            if (value === null || value === undefined) return "";
+            var str = String(value);
+            if (str.indexOf(",") !== -1 || str.indexOf('"') !== -1 || str.indexOf("\n") !== -1) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        }
+
+        function revealInTree(id) {
+            try {
+                var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+                var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+                var StructuredSelection = Java.type("org.eclipse.jface.viewers.StructuredSelection");
+                var PlatformUI = Java.type("org.eclipse.ui.PlatformUI");
+                var eObject = null;
+                var models = IEditorModelManager.INSTANCE.getModels();
+                for (var m = 0; m < models.size(); m++) {
+                    eObject = ArchimateModelUtils.getObjectByID(models.get(m), id);
+                    if (eObject) break;
+                }
+                if (!eObject) return;
+                var page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+                var treeView = page.showView("com.archimatetool.editor.treeModelView");
+                treeView.getViewer().setSelection(new StructuredSelection(eObject), true);
+            } catch (e) {
+                log.error("Navigation failed: " + e.toString());
+            }
+        }
+
+        function capitalize(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        // =================================================================
+        // Default policy (inline fallback)
+        // =================================================================
+
+        function getDefaultPolicy() {
+            return {
+                version: "1.0.0",
+                description: "Default strict layering policy",
+                layers: {
+                    "strategy":       { order: 5, crossCutting: false },
+                    "business":       { order: 4, crossCutting: false },
+                    "application":    { order: 3, crossCutting: false },
+                    "technology":     { order: 2, crossCutting: false },
+                    "physical":       { order: 1, crossCutting: false },
+                    "motivation":     { order: 0, crossCutting: true },
+                    "implementation": { order: 0, crossCutting: true }
+                },
+                elementTypeToLayer: {
+                    "stakeholder": "motivation", "driver": "motivation", "assessment": "motivation",
+                    "goal": "motivation", "outcome": "motivation", "principle": "motivation",
+                    "requirement": "motivation", "constraint": "motivation", "meaning": "motivation",
+                    "value": "motivation",
+                    "resource": "strategy", "capability": "strategy", "course-of-action": "strategy",
+                    "value-stream": "strategy",
+                    "business-actor": "business", "business-role": "business",
+                    "business-collaboration": "business", "business-interface": "business",
+                    "business-process": "business", "business-function": "business",
+                    "business-interaction": "business", "business-event": "business",
+                    "business-service": "business", "business-object": "business",
+                    "contract": "business", "representation": "business", "product": "business",
+                    "application-component": "application", "application-collaboration": "application",
+                    "application-interface": "application", "application-function": "application",
+                    "application-process": "application", "application-interaction": "application",
+                    "application-event": "application", "application-service": "application",
+                    "data-object": "application",
+                    "node": "technology", "device": "technology", "system-software": "technology",
+                    "technology-collaboration": "technology", "technology-interface": "technology",
+                    "path": "technology", "communication-network": "technology",
+                    "technology-function": "technology", "technology-process": "technology",
+                    "technology-interaction": "technology", "technology-event": "technology",
+                    "technology-service": "technology", "artifact": "technology",
+                    "equipment": "physical", "facility": "physical",
+                    "distribution-network": "physical", "material": "physical",
+                    "work-package": "implementation", "deliverable": "implementation",
+                    "implementation-event": "implementation", "plateau": "implementation",
+                    "gap": "implementation"
+                },
+                allowedTransitions: [
+                    { from: "strategy",    to: "business",    direction: "both" },
+                    { from: "business",    to: "application",  direction: "both" },
+                    { from: "application", to: "technology",   direction: "both" },
+                    { from: "technology",  to: "physical",     direction: "both" }
+                ],
+                sameLayerAlwaysAllowed: true,
+                excludedRelationshipTypes: [
+                    "association-relationship",
+                    "specialization-relationship"
+                ],
+                allowlist: [],
+                mediationSuggestions: {
+                    "business->technology": {
+                        description: "Business layer should not connect directly to Technology layer",
+                        suggestion: "Insert an Application layer mediator (e.g., Application Service or Application Component).",
+                        mediatorTypes: ["application-service", "application-component", "application-function"],
+                        pattern: "Business Element -> [Application Service] -> Technology Element"
+                    },
+                    "strategy->application": {
+                        description: "Strategy layer should not connect directly to Application layer",
+                        suggestion: "Insert a Business layer mediator (e.g., Business Service or Business Process).",
+                        mediatorTypes: ["business-service", "business-process", "business-function"],
+                        pattern: "Strategy Element -> [Business Service] -> Application Element"
+                    },
+                    "strategy->technology": {
+                        description: "Strategy layer should not connect directly to Technology layer",
+                        suggestion: "Route through Business and Application layers.",
+                        mediatorTypes: ["business-service", "application-service"],
+                        pattern: "Strategy -> [Business Service] -> [Application Service] -> Technology"
+                    },
+                    "strategy->physical": {
+                        description: "Strategy layer should not connect directly to Physical layer",
+                        suggestion: "Route through Business, Application, and Technology layers.",
+                        mediatorTypes: ["business-service", "application-service", "technology-service"],
+                        pattern: "Strategy -> [Business] -> [Application] -> [Technology] -> Physical"
+                    },
+                    "business->physical": {
+                        description: "Business layer should not connect directly to Physical layer",
+                        suggestion: "Insert Application and Technology layer mediators.",
+                        mediatorTypes: ["application-service", "technology-service"],
+                        pattern: "Business -> [Application Service] -> [Technology Service] -> Physical"
+                    },
+                    "application->physical": {
+                        description: "Application layer should not connect directly to Physical layer",
+                        suggestion: "Insert a Technology layer mediator (e.g., Node, Device, or Technology Service).",
+                        mediatorTypes: ["technology-service", "node", "device"],
+                        pattern: "Application -> [Technology Service/Node] -> Physical"
+                    }
+                }
+            };
+        }
+
+        // =================================================================
+        // Config loading
+        // =================================================================
+
+        var policySource = "built-in default";
+
+        function loadPolicy() {
+            var configPath = Paths.get(__DIR__ + "config/layer-policy.json");
+            if (Files.exists(configPath)) {
+                try {
+                    var content = new JString(Files.readAllBytes(configPath), "UTF-8");
+                    policySource = String(configPath);
+                    log.detail("  Loaded policy from " + policySource);
+                    return JSON.parse(String(content));
+                } catch (e) {
+                    log.warn("Failed to parse layer-policy.json: " + e.toString());
+                    log.warn("Falling back to built-in default policy.");
+                }
+            } else {
+                log.detail("  No custom policy found, using built-in default.");
+            }
+            return getDefaultPolicy();
+        }
+
+        var policy = loadPolicy();
+
+        // =================================================================
+        // Policy helpers
+        // =================================================================
+
+        // Build excluded relationship type set
+        var excludedRelTypes = {};
+        if (policy.excludedRelationshipTypes) {
+            for (var ei = 0; ei < policy.excludedRelationshipTypes.length; ei++) {
+                excludedRelTypes[policy.excludedRelationshipTypes[ei]] = true;
+            }
+        }
+
+        // Build allowed transition set
+        var allowedTransitionSet = {};
+        if (policy.allowedTransitions) {
+            for (var ti = 0; ti < policy.allowedTransitions.length; ti++) {
+                var t = policy.allowedTransitions[ti];
+                allowedTransitionSet[t.from + "->" + t.to] = true;
+                if (t.direction === "both") {
+                    allowedTransitionSet[t.to + "->" + t.from] = true;
+                }
+            }
+        }
+
+        function getLayer(elementType) {
+            return policy.elementTypeToLayer[elementType] || null;
+        }
+
+        function getLayerDef(layerName) {
+            return policy.layers[layerName] || null;
+        }
+
+        function isCrossCutting(layerName) {
+            var def = getLayerDef(layerName);
+            return def ? def.crossCutting === true : false;
+        }
+
+        function isTransitionAllowed(fromLayer, toLayer) {
+            return allowedTransitionSet[fromLayer + "->" + toLayer] === true;
+        }
+
+        function isAllowlisted(sourceType, targetType, relType) {
+            if (!policy.allowlist) return false;
+            for (var ai = 0; ai < policy.allowlist.length; ai++) {
+                var entry = policy.allowlist[ai];
+                if (entry.sourceType === sourceType && entry.targetType === targetType) {
+                    if (!entry.relationshipTypes || entry.relationshipTypes.length === 0) return true;
+                    for (var ri = 0; ri < entry.relationshipTypes.length; ri++) {
+                        if (entry.relationshipTypes[ri] === relType) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function getLayerDistance(layerA, layerB) {
+            var defA = getLayerDef(layerA);
+            var defB = getLayerDef(layerB);
+            if (!defA || !defB) return 0;
+            return Math.abs(defA.order - defB.order);
+        }
+
+        function makeRuleKey(layerA, layerB) {
+            // Normalize so the higher-order layer comes first
+            var defA = getLayerDef(layerA);
+            var defB = getLayerDef(layerB);
+            if (defA && defB && defA.order < defB.order) {
+                return layerB + "->" + layerA;
+            }
+            return layerA + "->" + layerB;
+        }
+
+        function getMediationSuggestion(ruleKey) {
+            if (policy.mediationSuggestions && policy.mediationSuggestions[ruleKey]) {
+                return policy.mediationSuggestions[ruleKey];
+            }
+            // Try reversed key
+            var parts = ruleKey.split("->");
+            if (parts.length === 2) {
+                var reversed = parts[1] + "->" + parts[0];
+                if (policy.mediationSuggestions && policy.mediationSuggestions[reversed]) {
+                    return policy.mediationSuggestions[reversed];
+                }
+            }
+            return null;
+        }
+
+        function getRuleLabel(ruleKey) {
+            var parts = ruleKey.split("->");
+            if (parts.length === 2) {
+                return capitalize(parts[0]) + " \u2192 " + capitalize(parts[1]);
+            }
+            return ruleKey;
+        }
+
+        // =================================================================
+        // Phase 1: Scan all relationships
+        // =================================================================
+
+        var violations = [];
+        var stats = {
+            total: 0,
+            checked: 0,
+            skippedUnknown: 0,
+            skippedSameLayer: 0,
+            skippedCrossCutting: 0,
+            skippedExcludedType: 0,
+            skippedAllowlisted: 0
+        };
+
+        $("relationship").each(function (rel) {
+            stats.total++;
+            if (stats.total % 500 === 0) {
+                log.detail("  Scanned " + stats.total + " relationships...");
+            }
+
+            var sourceType = rel.source ? rel.source.type : null;
+            var targetType = rel.target ? rel.target.type : null;
+            var relType = rel.type;
+
+            // Skip broken or unknown types (junctions, nested relationships)
+            if (!sourceType || !targetType ||
+                !relationshipMatrix.isKnownType(sourceType) ||
+                !relationshipMatrix.isKnownType(targetType)) {
+                stats.skippedUnknown++;
+                return;
+            }
+
+            var sourceLayer = getLayer(sourceType);
+            var targetLayer = getLayer(targetType);
+
+            // Skip if we can't determine layers
+            if (!sourceLayer || !targetLayer) {
+                stats.skippedUnknown++;
+                return;
+            }
+
+            // Skip same-layer relationships
+            if (sourceLayer === targetLayer && policy.sameLayerAlwaysAllowed) {
+                stats.skippedSameLayer++;
+                return;
+            }
+
+            // Skip if either layer is cross-cutting
+            if (isCrossCutting(sourceLayer) || isCrossCutting(targetLayer)) {
+                stats.skippedCrossCutting++;
+                return;
+            }
+
+            // Skip excluded relationship types
+            if (excludedRelTypes[relType]) {
+                stats.skippedExcludedType++;
+                return;
+            }
+
+            // Check allowlist
+            if (isAllowlisted(sourceType, targetType, relType)) {
+                stats.skippedAllowlisted++;
+                return;
+            }
+
+            stats.checked++;
+
+            // Check if transition is allowed
+            if (isTransitionAllowed(sourceLayer, targetLayer)) {
+                return;
+            }
+
+            // Violation found
+            var ruleKey = makeRuleKey(sourceLayer, targetLayer);
+            var layerDist = getLayerDistance(sourceLayer, targetLayer);
+            var mediation = getMediationSuggestion(ruleKey);
+
+            violations.push({
+                relId: rel.id,
+                relType: relType,
+                relName: rel.name || "",
+                sourceName: safeName(rel.source),
+                sourceType: sourceType,
+                sourceLayer: sourceLayer,
+                targetName: safeName(rel.target),
+                targetType: targetType,
+                targetLayer: targetLayer,
+                ruleKey: ruleKey,
+                ruleLabel: getRuleLabel(ruleKey),
+                layerDistance: layerDist,
+                severity: layerDist >= 3 ? "Error" : "Warning",
+                mediation: mediation
+            });
+        });
+
+        var skippedTotal = stats.skippedUnknown + stats.skippedSameLayer +
+            stats.skippedCrossCutting + stats.skippedExcludedType + stats.skippedAllowlisted;
+
+        log.info("Scanned " + stats.total + " relationships (" + skippedTotal + " skipped, " + stats.checked + " checked).");
+        log.info("Violations found: " + violations.length);
+
+        // =================================================================
+        // Phase 2: Group violations by rule
+        // =================================================================
+
+        var violationsByRule = {};
+        var ruleKeys = [];
+        for (var vi = 0; vi < violations.length; vi++) {
+            var v = violations[vi];
+            if (!violationsByRule[v.ruleKey]) {
+                violationsByRule[v.ruleKey] = [];
+                ruleKeys.push(v.ruleKey);
+            }
+            violationsByRule[v.ruleKey].push(v);
+        }
+
+        // Sort rule keys: errors first, then by count descending
+        ruleKeys.sort(function (a, b) {
+            var aHasError = violationsByRule[a].some(function (v) { return v.severity === "Error"; });
+            var bHasError = violationsByRule[b].some(function (v) { return v.severity === "Error"; });
+            if (aHasError !== bHasError) return aHasError ? -1 : 1;
+            return violationsByRule[b].length - violationsByRule[a].length;
+        });
+
+        var errorCount = violations.filter(function (v) { return v.severity === "Error"; }).length;
+        var warningCount = violations.length - errorCount;
+
+        // =================================================================
+        // Handle empty results
+        // =================================================================
+
+        if (stats.total === 0) {
+            log.success("No relationships found in model.");
+            MessageDialog.openInformation(shell, "Strict Layer Violation Detector",
+                "No relationships found in the current model.");
+            return;
+        }
+
+        if (violations.length === 0) {
+            log.success("No layer violations found in " + stats.checked + " checked relationships.");
+            MessageDialog.openInformation(shell, "Strict Layer Violation Detector",
+                "No layer violations found.\n\n" +
+                stats.total + " relationships scanned, " + stats.checked + " checked.\n" +
+                skippedTotal + " skipped (same layer, cross-cutting, excluded types).\n\n" +
+                "Policy: " + policySource);
+            return;
+        }
+
+        // =================================================================
+        // Phase 3: Dialog
+        // =================================================================
+
+        var EXPORT_CSV_ID = 42;
+        var errorColor = null;
+        var warningColor = null;
+
+        var VIOLATION_COLUMNS = [
+            ["Rule",        140],
+            ["Severity",     70],
+            ["Source",       120],
+            ["Source Type",  110],
+            ["Rel Type",     110],
+            ["Target",       120],
+            ["Target Type",  110],
+            ["Rel ID",       100]
+        ];
+
+        function populateViolationTable(table, data, sortCol, ascending) {
+            table.removeAll();
+            var keys = ["ruleLabel", "severity", "sourceName", "sourceType", "relType", "targetName", "targetType", "relId"];
+            var sorted = data.slice().sort(function (a, b) {
+                var key = keys[sortCol];
+                var va = key === "relType" ? relationshipMatrix.getRelationshipLabel(a[key]) : (a[key] || "");
+                var vb = key === "relType" ? relationshipMatrix.getRelationshipLabel(b[key]) : (b[key] || "");
+                var cmp = String(va).localeCompare(String(vb));
+                return ascending ? cmp : -cmp;
+            });
+            var display = Display.getCurrent();
+            for (var i = 0; i < sorted.length; i++) {
+                var v = sorted[i];
+                var item = new TableItem(table, SWT.NONE);
+                item.setText(javaStringArray([
+                    v.ruleLabel,
+                    v.severity,
+                    v.sourceName,
+                    v.sourceType,
+                    relationshipMatrix.getRelationshipLabel(v.relType),
+                    v.targetName,
+                    v.targetType,
+                    v.relId
+                ]));
+                item.setData("id", v.relId);
+                item.setData("violation", v);
+                if (v.severity === "Error" && errorColor) {
+                    item.setForeground(1, errorColor);
+                } else if (v.severity === "Warning" && warningColor) {
+                    item.setForeground(1, warningColor);
+                }
+            }
+        }
+
+        function buildViolationTable(parent, data, remediationLabel) {
+            var sortCol = { value: 0 };
+            var ascending = { value: true };
+
+            var table = new Table(parent, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+            table.setHeaderVisible(true);
+            table.setLinesVisible(true);
+            GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, 350).applyTo(table);
+
+            for (var c = 0; c < VIOLATION_COLUMNS.length; c++) {
+                var col = new TableColumn(table, SWT.NONE);
+                col.setText(VIOLATION_COLUMNS[c][0]);
+                col.setWidth(VIOLATION_COLUMNS[c][1]);
+                col.setData("colIndex", c);
+                col.addSelectionListener({
+                    widgetSelected: function (e) {
+                        var clicked = e.widget.getData("colIndex");
+                        if (clicked === sortCol.value) {
+                            ascending.value = !ascending.value;
+                        } else {
+                            sortCol.value = clicked;
+                            ascending.value = true;
+                        }
+                        table.setSortColumn(e.widget);
+                        table.setSortDirection(ascending.value ? SWT.UP : SWT.DOWN);
+                        populateViolationTable(table, data, sortCol.value, ascending.value);
+                    },
+                    widgetDefaultSelected: function () {}
+                });
+            }
+
+            table.setSortColumn(table.getColumn(0));
+            table.setSortDirection(SWT.UP);
+            populateViolationTable(table, data, 0, true);
+
+            // Double-click to reveal in tree
+            table.addListener(SWT.MouseDoubleClick, function () {
+                var sel = table.getSelection();
+                if (sel.length === 0) return;
+                var id = sel[0].getData("id");
+                if (id) revealInTree(id);
+            });
+
+            // Single-click to show mediation
+            table.addListener(SWT.Selection, function () {
+                var sel = table.getSelection();
+                if (sel.length === 0 || !remediationLabel) return;
+                var v = sel[0].getData("violation");
+                if (v && v.mediation) {
+                    remediationLabel.setText("Mediation: " + v.mediation.suggestion + "\nPattern: " + v.mediation.pattern);
+                } else {
+                    remediationLabel.setText("No specific mediation pattern configured for this layer combination.");
+                }
+                remediationLabel.getParent().layout(true);
+            });
+
+            return table;
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Strict Layer Violation Detector");
+                    newShell.setMinimumSize(850, 500);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                getShellStyle: function () {
+                    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+                    var display = Display.getCurrent();
+                    errorColor = new Color(display, 220, 50, 50);
+                    warningColor = new Color(display, 200, 140, 0);
+
+                    myDialog.dialog.setTitle("Layer Violation Report");
+                    myDialog.dialog.setMessage(
+                        violations.length + " violation" + (violations.length !== 1 ? "s" : "") +
+                        " found \u2014 " + errorCount + " error" + (errorCount !== 1 ? "s" : "") +
+                        ", " + warningCount + " warning" + (warningCount !== 1 ? "s" : "")
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // Tab folder
+                    var tabFolder = new TabFolder(container, SWT.NONE);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(tabFolder);
+
+                    // --- Summary tab ---
+                    var summaryTab = new TabItem(tabFolder, SWT.NONE);
+                    summaryTab.setText("Summary");
+                    var summaryComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(16, 12).spacing(8, 6).applyTo(summaryComp);
+
+                    var lines = [
+                        "Total relationships:     " + stats.total,
+                        "Checked:                 " + stats.checked,
+                        "Skipped:                 " + skippedTotal,
+                        "  Same layer:            " + stats.skippedSameLayer,
+                        "  Cross-cutting layer:   " + stats.skippedCrossCutting,
+                        "  Excluded rel types:    " + stats.skippedExcludedType,
+                        "  Unknown/junction:      " + stats.skippedUnknown,
+                        "  Allowlisted:           " + stats.skippedAllowlisted,
+                        "",
+                        "Violations:              " + violations.length,
+                        "  Errors:                " + errorCount + "  (spans 3+ layers)",
+                        "  Warnings:              " + warningCount + "  (spans 2 layers)",
+                        "",
+                        "Policy: " + policySource,
+                        ""
+                    ];
+
+                    if (ruleKeys.length > 0) {
+                        lines.push("Breakdown by rule:");
+                        for (var rk = 0; rk < ruleKeys.length; rk++) {
+                            var key = ruleKeys[rk];
+                            var count = violationsByRule[key].length;
+                            lines.push("  " + getRuleLabel(key) + ":  " + count);
+                        }
+                    }
+
+                    for (var li = 0; li < lines.length; li++) {
+                        var lbl = new Label(summaryComp, SWT.NONE);
+                        lbl.setText(lines[li]);
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(lbl);
+                    }
+                    summaryTab.setControl(summaryComp);
+
+                    // --- Violations tab ---
+                    var violationsTab = new TabItem(tabFolder, SWT.NONE);
+                    violationsTab.setText("Violations (" + violations.length + ")");
+                    var violationsComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(violationsComp);
+
+                    var remLabel = new Label(violationsComp, SWT.WRAP);
+                    remLabel.setText("Select a row to see mediation advice.");
+                    GridDataFactory.fillDefaults().grab(true, false).hint(SWT.DEFAULT, 40).applyTo(remLabel);
+
+                    buildViolationTable(violationsComp, violations, remLabel);
+
+                    var footer = new Label(violationsComp, SWT.NONE);
+                    footer.setText(violations.length + " violation" + (violations.length !== 1 ? "s" : "") +
+                        "  |  Double-click to reveal  |  Click headers to sort");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(footer);
+                    violationsTab.setControl(violationsComp);
+
+                    // --- Mediation Patterns tab ---
+                    var mediationTab = new TabItem(tabFolder, SWT.NONE);
+                    mediationTab.setText("Mediation Patterns");
+                    var mediationComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(16, 12).spacing(8, 6).applyTo(mediationComp);
+
+                    var medKeys = Object.keys(policy.mediationSuggestions || {});
+                    if (medKeys.length === 0) {
+                        var noMed = new Label(mediationComp, SWT.NONE);
+                        noMed.setText("No mediation patterns configured in the current policy.");
+                        GridDataFactory.fillDefaults().grab(true, true).applyTo(noMed);
+                    } else {
+                        for (var mk = 0; mk < medKeys.length; mk++) {
+                            var med = policy.mediationSuggestions[medKeys[mk]];
+                            var ruleLabel = getRuleLabel(medKeys[mk]);
+
+                            var titleLbl = new Label(mediationComp, SWT.NONE);
+                            titleLbl.setText("\u25B6 " + ruleLabel);
+                            GridDataFactory.fillDefaults().grab(true, false).applyTo(titleLbl);
+
+                            var descLbl = new Label(mediationComp, SWT.WRAP);
+                            descLbl.setText("  " + med.description + "\n  Suggestion: " + med.suggestion + "\n  Pattern: " + med.pattern);
+                            GridDataFactory.fillDefaults().grab(true, false).indent(12, 0).applyTo(descLbl);
+
+                            // Spacer
+                            var spacer = new Label(mediationComp, SWT.NONE);
+                            spacer.setText("");
+                            GridDataFactory.fillDefaults().grab(true, false).applyTo(spacer);
+                        }
+                    }
+                    mediationTab.setControl(mediationComp);
+
+                    // Select violations tab by default
+                    tabFolder.setSelection(1);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, EXPORT_CSV_ID, "Export CSV", false);
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                buttonPressed: function (buttonId) {
+                    if (buttonId === EXPORT_CSV_ID) {
+                        exportCsv();
+                        return;
+                    }
+                    Java.super(myDialog.dialog).okPressed();
+                },
+
+                close: function () {
+                    if (errorColor && !errorColor.isDisposed()) {
+                        errorColor.dispose();
+                    }
+                    if (warningColor && !warningColor.isDisposed()) {
+                        warningColor.dispose();
+                    }
+                    return Java.super(myDialog.dialog).close();
+                },
+
+                getInitialSize: function () {
+                    return new Point(1000, 650);
+                }
+            })
+        };
+
+        // =================================================================
+        // CSV Export
+        // =================================================================
+
+        function exportCsv() {
+            var outputDir = window.promptOpenDirectory({
+                title: "Select output directory for layer violation report"
+            });
+            if (!outputDir) return;
+
+            var filePath = outputDir + File.separator + "layer_violation_report.csv";
+            var headers = ["Rule", "Severity", "Source", "Source Type", "Source Layer",
+                "Relationship Type", "Target", "Target Type", "Target Layer",
+                "Relationship ID", "Mediation"];
+
+            var writer = new BufferedWriter(new FileWriter(filePath));
+            try {
+                writer.write(headers.map(csvEscape).join(","));
+                writer.newLine();
+                for (var i = 0; i < violations.length; i++) {
+                    var v = violations[i];
+                    var medText = v.mediation ? v.mediation.suggestion : "";
+                    var row = [
+                        v.ruleLabel,
+                        v.severity,
+                        v.sourceName,
+                        v.sourceType,
+                        v.sourceLayer,
+                        relationshipMatrix.getRelationshipLabel(v.relType),
+                        v.targetName,
+                        v.targetType,
+                        v.targetLayer,
+                        v.relId,
+                        medText
+                    ];
+                    writer.write(row.map(csvEscape).join(","));
+                    writer.newLine();
+                }
+            } finally {
+                writer.close();
+            }
+
+            log.success("Exported " + violations.length + " violations to " + filePath);
+            MessageDialog.openInformation(shell, "Export Complete",
+                "Exported " + violations.length + " violations to:\n" + filePath);
+        }
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Layer violation check complete: " + errorCount + " errors, " + warningCount + " warnings.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

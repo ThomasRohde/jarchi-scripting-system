@@ -32,7 +32,7 @@ const fs = require("fs");
 const SCRIPTS_DIR = path.join(__dirname, "..", "scripts");
 
 /** Directories under scripts/ to hide from the Script Manager. */
-const HIDDEN_DIRS = ["lib", "help", "vendor", "registry"];
+const HIDDEN_DIRS = ["lib", "help", "vendor", "registry", "config"];
 
 const unhide = process.argv.includes("--unhide");
 const isWindows = process.platform === "win32";
