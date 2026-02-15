@@ -1,0 +1,23 @@
+{
+    "id": "utilities.model_sync_upsert",
+    "title": "Model Sync",
+    "category": ["Utilities"],
+    "order": 20,
+    "script": {
+        "path": "Model Sync.ajs"
+    },
+    "description": "CSV/JSON upsert with dry-run preview. Imports elements and relationships, matching against existing model by ID, external key, or name+type. Supports create, update, and delete modes.",
+    "tags": ["utilities", "sync", "import", "csv", "json", "upsert", "merge", "update"],
+    "help": {
+        "markdown_path": "../help/model-sync.md"
+    },
+    "run": {
+        "danger_level": "high",
+        "confirm_message": "This script can create, update, and delete model elements. Always review the dry-run preview before applying."
+    },
+    "selection": {
+        "types": [],
+        "min": 0,
+        "require_view": false
+    }
+}

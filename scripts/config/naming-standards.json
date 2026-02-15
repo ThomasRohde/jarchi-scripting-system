@@ -1,0 +1,24 @@
+{
+    "version": "1.0.0",
+    "naming": {
+        "global": {
+            "minLength": 2,
+            "maxLength": 120,
+            "trimWhitespace": true,
+            "noMultipleSpaces": true,
+            "noControlChars": true
+        },
+        "byType": {},
+        "byLayer": {}
+    },
+    "properties": {
+        "global": [],
+        "byType": {},
+        "byLayer": {}
+    },
+    "documentation": {
+        "requiredForTypes": [],
+        "requiredForLayers": [],
+        "minLength": 0
+    }
+}

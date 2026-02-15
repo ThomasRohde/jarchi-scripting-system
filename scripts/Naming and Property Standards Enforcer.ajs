@@ -1,0 +1,767 @@
+/**
+ * @name Naming and Property Standards Enforcer
+ * @description Validates model elements against configurable naming, property, and
+ * documentation standards. Reports violations in a tabbed dialog with sortable tables,
+ * navigation, and CSV export. Optionally applies auto-fixable issues (whitespace cleanup,
+ * default property values).
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-15
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+load(__DIR__ + "lib/modelPolicies.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Button = swtImports.Button;
+    var Combo = swtImports.Combo;
+    var Group = swtImports.Group;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var TabFolder = swtImports.TabFolder;
+    var TabItem = swtImports.TabItem;
+    var Color = swtImports.Color;
+    var Display = swtImports.Display;
+
+    var OutputStreamWriter = Java.type("java.io.OutputStreamWriter");
+    var FileOutputStream = Java.type("java.io.FileOutputStream");
+    var BufferedWriter = Java.type("java.io.BufferedWriter");
+    var File = Java.type("java.io.File");
+    var Files = Java.type("java.nio.file.Files");
+    var Paths = Java.type("java.nio.file.Paths");
+    var JString = Java.type("java.lang.String");
+
+    try {
+        requireModel();
+        log.header("Naming and Property Standards Enforcer");
+
+        // =================================================================
+        // Helpers
+        // =================================================================
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        function csvEscape(value) {
+            if (value === null || value === undefined) return "";
+            var str = String(value);
+            if (str.indexOf(",") !== -1 || str.indexOf('"') !== -1 || str.indexOf("\n") !== -1 || str.indexOf("\r") !== -1) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        }
+
+        function revealInTree(id) {
+            try {
+                var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+                var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+                var StructuredSelection = Java.type("org.eclipse.jface.viewers.StructuredSelection");
+                var PlatformUI = Java.type("org.eclipse.ui.PlatformUI");
+                var eObject = null;
+                var models = IEditorModelManager.INSTANCE.getModels();
+                for (var m = 0; m < models.size(); m++) {
+                    eObject = ArchimateModelUtils.getObjectByID(models.get(m), id);
+                    if (eObject) break;
+                }
+                if (!eObject) return;
+                var page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+                var treeView = page.showView("com.archimatetool.editor.treeModelView");
+                treeView.getViewer().setSelection(new StructuredSelection(eObject), true);
+            } catch (e) {
+                log.error("Navigation failed: " + e.toString());
+            }
+        }
+
+        // =================================================================
+        // Load Standards
+        // =================================================================
+
+        var standardsSource = "built-in defaults";
+        var configPath = __DIR__ + "config/naming-standards.json";
+
+        var standards = modelPolicies.loadStandards(configPath);
+        if (standards) {
+            standardsSource = String(Paths.get(configPath));
+            log.detail("  Loaded standards from " + standardsSource);
+        } else {
+            log.detail("  Using built-in default standards.");
+            standards = modelPolicies.getDefaultStandards();
+        }
+
+        // =================================================================
+        // Config Dialog
+        // =================================================================
+
+        var configResult = false;
+        var config = {
+            mode: "check",
+            scope: "model",
+            checkNaming: true,
+            checkProperties: true,
+            checkDocumentation: true
+        };
+
+        var w = {};
+
+        var configDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(configDialog.dialog).configureShell(newShell);
+                    newShell.setText("Naming and Property Standards Enforcer");
+                    newShell.setMinimumSize(480, 420);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(configDialog.dialog).createDialogArea(parent);
+
+                    configDialog.dialog.setTitle("Standards Validation Configuration");
+                    configDialog.dialog.setMessage(
+                        "Configure validation scope and rule categories."
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(12, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // --- Mode ---
+                    var modeLabel = new Label(container, SWT.NONE);
+                    modeLabel.setText("Mode:");
+                    GridDataFactory.swtDefaults().applyTo(modeLabel);
+
+                    w.modeCombo = new Combo(container, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    w.modeCombo.setItems(javaStringArray(["Check Only", "Check and Apply Fixes"]));
+                    w.modeCombo.select(0);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.modeCombo);
+
+                    // --- Standards source ---
+                    var srcLabel = new Label(container, SWT.NONE);
+                    srcLabel.setText("Standards:");
+                    GridDataFactory.swtDefaults().applyTo(srcLabel);
+
+                    var srcValue = new Label(container, SWT.NONE);
+                    srcValue.setText(standardsSource);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(srcValue);
+
+                    // --- Scope ---
+                    var scopeLabel = new Label(container, SWT.NONE);
+                    scopeLabel.setText("Scope:");
+                    GridDataFactory.swtDefaults().applyTo(scopeLabel);
+
+                    w.scopeCombo = new Combo(container, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    w.scopeCombo.setItems(javaStringArray(["Entire Model", "Selected Elements"]));
+                    w.scopeCombo.select(0);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.scopeCombo);
+
+                    // --- Rule categories ---
+                    var ruleGroup = new Group(container, SWT.NONE);
+                    ruleGroup.setText("Rule Categories");
+                    GridLayoutFactory.fillDefaults().numColumns(3).margins(8, 6).applyTo(ruleGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(ruleGroup);
+
+                    w.checkNaming = new Button(ruleGroup, SWT.CHECK);
+                    w.checkNaming.setText("Naming");
+                    w.checkNaming.setSelection(true);
+                    GridDataFactory.fillDefaults().applyTo(w.checkNaming);
+
+                    w.checkProperties = new Button(ruleGroup, SWT.CHECK);
+                    w.checkProperties.setText("Properties");
+                    w.checkProperties.setSelection(true);
+                    GridDataFactory.fillDefaults().applyTo(w.checkProperties);
+
+                    w.checkDocumentation = new Button(ruleGroup, SWT.CHECK);
+                    w.checkDocumentation.setText("Documentation");
+                    w.checkDocumentation.setSelection(true);
+                    GridDataFactory.fillDefaults().applyTo(w.checkDocumentation);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    configDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Validate", true);
+                    configDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", false);
+                },
+
+                okPressed: function () {
+                    config.mode = w.modeCombo.getSelectionIndex() === 0 ? "check" : "apply";
+                    config.scope = w.scopeCombo.getSelectionIndex() === 0 ? "model" : "selection";
+                    config.checkNaming = w.checkNaming.getSelection();
+                    config.checkProperties = w.checkProperties.getSelection();
+                    config.checkDocumentation = w.checkDocumentation.getSelection();
+
+                    if (!config.checkNaming && !config.checkProperties && !config.checkDocumentation) {
+                        MessageDialog.openWarning(shell, "No Rules Selected",
+                            "Please select at least one rule category to check.");
+                        return;
+                    }
+
+                    configResult = true;
+                    Java.super(configDialog.dialog).okPressed();
+                },
+
+                getInitialSize: function () {
+                    return new Point(520, 440);
+                }
+            })
+        };
+
+        configDialog.dialog.setHelpAvailable(false);
+        configDialog.dialog.open();
+
+        if (!configResult) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // =================================================================
+        // Collect elements
+        // =================================================================
+
+        var elements;
+        if (config.scope === "selection") {
+            elements = resolveSelection.selectedConcepts("element");
+            if (!elements || elements.size() === 0) {
+                window.alert("No elements selected. Please select elements in the tree or on a view.");
+                log.warn("No elements selected.");
+                return;
+            }
+            log.info("Validating " + elements.size() + " selected elements...");
+        } else {
+            elements = $("element");
+            log.info("Validating entire model (" + elements.size() + " elements)...");
+        }
+
+        // =================================================================
+        // Build effective standards based on selected categories
+        // =================================================================
+
+        var effectiveStandards = JSON.parse(JSON.stringify(standards));
+        if (!config.checkNaming) {
+            effectiveStandards.naming = { global: { minLength: 0, maxLength: 99999, trimWhitespace: false, noMultipleSpaces: false, noControlChars: false }, byType: {}, byLayer: {} };
+        }
+        if (!config.checkProperties) {
+            effectiveStandards.properties = { global: [], byType: {}, byLayer: {} };
+        }
+        if (!config.checkDocumentation) {
+            effectiveStandards.documentation = { requiredForTypes: [], requiredForLayers: [], minLength: 0 };
+        }
+
+        // =================================================================
+        // Run validation
+        // =================================================================
+
+        var result = modelPolicies.validateModel(elements, effectiveStandards);
+        var violations = result.violations;
+        var summary = result.summary;
+
+        log.info("Checked " + summary.totalElements + " elements, found " + violations.length + " violations.");
+
+        if (violations.length === 0) {
+            log.success("No violations found.");
+            MessageDialog.openInformation(shell, "Naming and Property Standards Enforcer",
+                "No violations found.\n\n" +
+                summary.totalElements + " elements checked.\n" +
+                "Standards: " + standardsSource);
+            return;
+        }
+
+        // =================================================================
+        // Categorize violations for tabs
+        // =================================================================
+
+        var namingViolations = [];
+        var propertyViolations = [];
+        var docViolations = [];
+
+        for (var i = 0; i < violations.length; i++) {
+            var v = violations[i];
+            if (v.category === "naming") namingViolations.push(v);
+            else if (v.category === "properties") propertyViolations.push(v);
+            else if (v.category === "documentation") docViolations.push(v);
+        }
+
+        // Count fixable violations
+        var fixableCount = 0;
+        for (var i = 0; i < violations.length; i++) {
+            if (violations[i].fix) fixableCount++;
+        }
+
+        // =================================================================
+        // Results Dialog
+        // =================================================================
+
+        var EXPORT_CSV_ID = 42;
+        var APPLY_FIXES_ID = 43;
+        var errorColor = null;
+        var warningColor = null;
+
+        function populateTable(table, rows, columns, sortCol, ascending) {
+            table.removeAll();
+            var sorted = rows.slice().sort(function (a, b) {
+                var key = columns[sortCol][2];
+                var va = a[key];
+                var vb = b[key];
+                if (typeof va === "number" && typeof vb === "number") {
+                    return ascending ? va - vb : vb - va;
+                }
+                var cmp = String(va || "").localeCompare(String(vb || ""));
+                return ascending ? cmp : -cmp;
+            });
+            var display = Display.getCurrent();
+            for (var i = 0; i < sorted.length; i++) {
+                var row = sorted[i];
+                var item = new TableItem(table, SWT.NONE);
+                var texts = [];
+                for (var c = 0; c < columns.length; c++) {
+                    texts.push(String(row[columns[c][2]] !== undefined ? row[columns[c][2]] : ""));
+                }
+                item.setText(javaStringArray(texts));
+                if (row.id) item.setData("id", row.id);
+                // Color severity column
+                if (row.severity === "error" && errorColor) {
+                    item.setForeground(0, errorColor);
+                } else if (row.severity === "warning" && warningColor) {
+                    item.setForeground(0, warningColor);
+                }
+            }
+        }
+
+        function buildSortableTable(parent, rows, columns, height) {
+            var sortCol = { value: 0 };
+            var ascending = { value: true };
+
+            var table = new Table(parent, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+            table.setHeaderVisible(true);
+            table.setLinesVisible(true);
+            GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, height || 300).applyTo(table);
+
+            for (var c = 0; c < columns.length; c++) {
+                var col = new TableColumn(table, SWT.NONE);
+                col.setText(columns[c][0]);
+                col.setWidth(columns[c][1]);
+                col.setData("colIndex", c);
+                col.addSelectionListener({
+                    widgetSelected: function (e) {
+                        var clicked = e.widget.getData("colIndex");
+                        if (clicked === sortCol.value) {
+                            ascending.value = !ascending.value;
+                        } else {
+                            sortCol.value = clicked;
+                            ascending.value = true;
+                        }
+                        table.setSortColumn(e.widget);
+                        table.setSortDirection(ascending.value ? SWT.UP : SWT.DOWN);
+                        populateTable(table, rows, columns, sortCol.value, ascending.value);
+                    },
+                    widgetDefaultSelected: function () {}
+                });
+            }
+
+            table.setSortColumn(table.getColumn(0));
+            table.setSortDirection(SWT.UP);
+            populateTable(table, rows, columns, 0, true);
+
+            table.addListener(SWT.MouseDoubleClick, function () {
+                var sel = table.getSelection();
+                if (sel.length === 0) return;
+                var id = sel[0].getData("id");
+                if (id) revealInTree(id);
+            });
+
+            return table;
+        }
+
+        // Build row data for naming violations
+        var namingRows = [];
+        for (var i = 0; i < namingViolations.length; i++) {
+            var nv = namingViolations[i];
+            namingRows.push({
+                severity: nv.severity,
+                name: nv.elementName || "(unnamed)",
+                type: nv.elementType,
+                layer: nv.elementLayer,
+                issue: nv.message,
+                currentName: nv.currentValue,
+                proposedFix: nv.fix ? nv.fix.proposedValue : "",
+                id: nv.elementId
+            });
+        }
+
+        var namingCols = [
+            ["Severity", 70, "severity"],
+            ["Element", 140, "name"],
+            ["Type", 120, "type"],
+            ["Layer", 90, "layer"],
+            ["Issue", 200, "issue"],
+            ["Current Name", 140, "currentName"],
+            ["Proposed Fix", 140, "proposedFix"],
+            ["ID", 100, "id"]
+        ];
+
+        // Build row data for property violations
+        var propRows = [];
+        for (var i = 0; i < propertyViolations.length; i++) {
+            var pv = propertyViolations[i];
+            var propKey = pv.fix ? pv.fix.key : "";
+            propRows.push({
+                severity: pv.severity,
+                name: pv.elementName || "(unnamed)",
+                type: pv.elementType,
+                layer: pv.elementLayer,
+                property: propKey || pv.message.replace(/.*: /, ""),
+                issue: pv.message,
+                proposedFix: pv.fix ? pv.fix.proposedValue : "",
+                id: pv.elementId
+            });
+        }
+
+        var propCols = [
+            ["Severity", 70, "severity"],
+            ["Element", 140, "name"],
+            ["Type", 120, "type"],
+            ["Layer", 90, "layer"],
+            ["Property", 100, "property"],
+            ["Issue", 200, "issue"],
+            ["Proposed Fix", 120, "proposedFix"],
+            ["ID", 100, "id"]
+        ];
+
+        // Build row data for documentation violations
+        var docRows = [];
+        for (var i = 0; i < docViolations.length; i++) {
+            var dv = docViolations[i];
+            docRows.push({
+                severity: dv.severity,
+                name: dv.elementName || "(unnamed)",
+                type: dv.elementType,
+                layer: dv.elementLayer,
+                issue: dv.message,
+                id: dv.elementId
+            });
+        }
+
+        var docCols = [
+            ["Severity", 70, "severity"],
+            ["Element", 140, "name"],
+            ["Type", 120, "type"],
+            ["Layer", 90, "layer"],
+            ["Issue", 300, "issue"],
+            ["ID", 100, "id"]
+        ];
+
+        // Scope description
+        var scopeDesc = config.scope === "model" ? "Entire Model" : "Selected Elements";
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Naming and Property Standards Enforcer");
+                    newShell.setMinimumSize(850, 550);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                getShellStyle: function () {
+                    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+                    var display = Display.getCurrent();
+                    errorColor = new Color(display, 220, 50, 50);
+                    warningColor = new Color(display, 200, 140, 0);
+
+                    myDialog.dialog.setTitle("Standards Validation Results");
+                    myDialog.dialog.setMessage(
+                        violations.length + " violation" + (violations.length !== 1 ? "s" : "") +
+                        " found in " + summary.totalElements + " elements" +
+                        (fixableCount > 0 ? " (" + fixableCount + " auto-fixable)" : "")
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    var tabFolder = new TabFolder(container, SWT.NONE);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(tabFolder);
+
+                    // --- Summary tab ---
+                    var summaryTab = new TabItem(tabFolder, SWT.NONE);
+                    summaryTab.setText("Summary");
+                    var summaryComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(16, 12).spacing(8, 6).applyTo(summaryComp);
+
+                    var lines = [
+                        "Elements checked:        " + summary.totalElements,
+                        "Scope:                   " + scopeDesc,
+                        "Standards:               " + standardsSource,
+                        "Mode:                    " + (config.mode === "check" ? "Check Only" : "Check and Apply Fixes"),
+                        "",
+                        "Total violations:        " + violations.length,
+                        "Auto-fixable:            " + fixableCount,
+                        ""
+                    ];
+
+                    if (config.checkNaming) {
+                        var nt = summary.naming.error + summary.naming.warning + summary.naming.info;
+                        lines.push("Naming violations:       " + nt +
+                            " (" + summary.naming.error + " errors, " + summary.naming.warning + " warnings, " + summary.naming.info + " info)");
+                    }
+                    if (config.checkProperties) {
+                        var pt = summary.properties.error + summary.properties.warning + summary.properties.info;
+                        lines.push("Property violations:     " + pt +
+                            " (" + summary.properties.error + " errors, " + summary.properties.warning + " warnings, " + summary.properties.info + " info)");
+                    }
+                    if (config.checkDocumentation) {
+                        var dt = summary.documentation.error + summary.documentation.warning + summary.documentation.info;
+                        lines.push("Documentation violations:" + dt +
+                            " (" + summary.documentation.error + " errors, " + summary.documentation.warning + " warnings, " + summary.documentation.info + " info)");
+                    }
+
+                    for (var li = 0; li < lines.length; li++) {
+                        var lbl = new Label(summaryComp, SWT.NONE);
+                        lbl.setText(lines[li]);
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(lbl);
+                    }
+                    summaryTab.setControl(summaryComp);
+
+                    // --- Naming Violations tab ---
+                    if (config.checkNaming) {
+                        var namingTab = new TabItem(tabFolder, SWT.NONE);
+                        namingTab.setText("Naming (" + namingViolations.length + ")");
+                        var namingComp = new Composite(tabFolder, SWT.NONE);
+                        GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(namingComp);
+
+                        if (namingRows.length > 0) {
+                            buildSortableTable(namingComp, namingRows, namingCols, 300);
+                        } else {
+                            var noNaming = new Label(namingComp, SWT.NONE);
+                            noNaming.setText("No naming violations found.");
+                            GridDataFactory.fillDefaults().grab(true, true).applyTo(noNaming);
+                        }
+
+                        var namingFooter = new Label(namingComp, SWT.NONE);
+                        namingFooter.setText(namingRows.length + " violations  |  Double-click to reveal  |  Click headers to sort");
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(namingFooter);
+                        namingTab.setControl(namingComp);
+                    }
+
+                    // --- Property Violations tab ---
+                    if (config.checkProperties) {
+                        var propsTab = new TabItem(tabFolder, SWT.NONE);
+                        propsTab.setText("Properties (" + propertyViolations.length + ")");
+                        var propsComp = new Composite(tabFolder, SWT.NONE);
+                        GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(propsComp);
+
+                        if (propRows.length > 0) {
+                            buildSortableTable(propsComp, propRows, propCols, 300);
+                        } else {
+                            var noProps = new Label(propsComp, SWT.NONE);
+                            noProps.setText("No property violations found.");
+                            GridDataFactory.fillDefaults().grab(true, true).applyTo(noProps);
+                        }
+
+                        var propsFooter = new Label(propsComp, SWT.NONE);
+                        propsFooter.setText(propRows.length + " violations  |  Double-click to reveal  |  Click headers to sort");
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(propsFooter);
+                        propsTab.setControl(propsComp);
+                    }
+
+                    // --- Documentation Violations tab ---
+                    if (config.checkDocumentation) {
+                        var docsTab = new TabItem(tabFolder, SWT.NONE);
+                        docsTab.setText("Documentation (" + docViolations.length + ")");
+                        var docsComp = new Composite(tabFolder, SWT.NONE);
+                        GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(docsComp);
+
+                        if (docRows.length > 0) {
+                            buildSortableTable(docsComp, docRows, docCols, 300);
+                        } else {
+                            var noDocs = new Label(docsComp, SWT.NONE);
+                            noDocs.setText("No documentation violations found.");
+                            GridDataFactory.fillDefaults().grab(true, true).applyTo(noDocs);
+                        }
+
+                        var docsFooter = new Label(docsComp, SWT.NONE);
+                        docsFooter.setText(docRows.length + " violations  |  Double-click to reveal  |  Click headers to sort");
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(docsFooter);
+                        docsTab.setControl(docsComp);
+                    }
+
+                    // Select first tab with violations
+                    if (config.checkNaming && namingViolations.length > 0) {
+                        tabFolder.setSelection(1);
+                    } else if (config.checkProperties && propertyViolations.length > 0) {
+                        tabFolder.setSelection(config.checkNaming ? 2 : 1);
+                    } else if (config.checkDocumentation && docViolations.length > 0) {
+                        var idx = 1;
+                        if (config.checkNaming) idx++;
+                        if (config.checkProperties) idx++;
+                        tabFolder.setSelection(idx);
+                    }
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, EXPORT_CSV_ID, "Export CSV", false);
+                    if (config.mode === "apply" && fixableCount > 0) {
+                        myDialog.dialog.createButton(parent, APPLY_FIXES_ID, "Apply Fixes...", false);
+                    }
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                buttonPressed: function (buttonId) {
+                    if (buttonId === EXPORT_CSV_ID) {
+                        exportCsv();
+                        return;
+                    }
+                    if (buttonId === APPLY_FIXES_ID) {
+                        applyFixesAction();
+                        return;
+                    }
+                    Java.super(myDialog.dialog).okPressed();
+                },
+
+                close: function () {
+                    if (errorColor && !errorColor.isDisposed()) errorColor.dispose();
+                    if (warningColor && !warningColor.isDisposed()) warningColor.dispose();
+                    return Java.super(myDialog.dialog).close();
+                },
+
+                getInitialSize: function () {
+                    return new Point(1000, 650);
+                }
+            })
+        };
+
+        // =================================================================
+        // CSV Export
+        // =================================================================
+
+        function exportCsv() {
+            var outputDir = window.promptOpenDirectory({
+                title: "Select output directory for standards report"
+            });
+            if (!outputDir) return;
+
+            var filePath = outputDir + File.separator + "naming_standards_report.csv";
+            var headers = ["Category", "Severity", "Element", "Type", "Layer", "Issue", "Current Value", "Proposed Fix", "Element ID"];
+
+            var writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), "UTF-8"));
+            try {
+                writer.write(headers.map(csvEscape).join(","));
+                writer.newLine();
+                for (var i = 0; i < violations.length; i++) {
+                    var v = violations[i];
+                    var row = [
+                        v.category,
+                        v.severity,
+                        v.elementName || "(unnamed)",
+                        v.elementType,
+                        v.elementLayer,
+                        v.message,
+                        v.currentValue,
+                        v.fix ? v.fix.proposedValue : "",
+                        v.elementId
+                    ];
+                    writer.write(row.map(csvEscape).join(","));
+                    writer.newLine();
+                }
+            } finally {
+                writer.close();
+            }
+
+            log.success("Exported " + violations.length + " violations to " + filePath);
+            MessageDialog.openInformation(shell, "Export Complete",
+                "Exported " + violations.length + " violations to:\n" + filePath);
+        }
+
+        // =================================================================
+        // Apply Fixes
+        // =================================================================
+
+        function applyFixesAction() {
+            var fixable = [];
+            for (var i = 0; i < violations.length; i++) {
+                if (violations[i].fix) fixable.push(violations[i]);
+            }
+
+            if (fixable.length === 0) {
+                MessageDialog.openInformation(shell, "No Fixes Available",
+                    "No auto-fixable violations found.");
+                return;
+            }
+
+            var renameCount = 0;
+            var propCount = 0;
+            for (var i = 0; i < fixable.length; i++) {
+                if (fixable[i].fix.type === "rename") renameCount++;
+                else if (fixable[i].fix.type === "setProperty") propCount++;
+            }
+
+            var confirmMsg = "Apply " + fixable.length + " fixes?\n\n" +
+                "  Renames: " + renameCount + "\n" +
+                "  Property defaults: " + propCount + "\n\n" +
+                "This will modify the model. Continue?";
+
+            if (!window.confirm(confirmMsg)) {
+                log.warn("Fix application cancelled.");
+                return;
+            }
+
+            log.info("Applying " + fixable.length + " fixes...");
+            var result = modelPolicies.applyFixes(fixable);
+
+            log.success("Fixes applied:");
+            log.detail("  Renames: " + result.renames);
+            log.detail("  Properties set: " + result.properties);
+            if (result.failed > 0) log.warn("  Failed: " + result.failed);
+
+            MessageDialog.openInformation(shell, "Fixes Applied",
+                "Fixes applied successfully.\n\n" +
+                "Renames: " + result.renames + "\n" +
+                "Properties set: " + result.properties +
+                (result.failed > 0 ? "\nFailed: " + result.failed : ""));
+        }
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Standards check complete: " + violations.length + " violations found.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

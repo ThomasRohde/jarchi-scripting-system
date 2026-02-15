@@ -1,0 +1,907 @@
+/**
+ * @name Model Sync
+ * @description CSV/JSON upsert with dry-run preview. Imports elements and relationships
+ * from CSV or JSON files, matching against existing model elements by ID, external key,
+ * or name+type. Supports create, update, and delete modes with a full dry-run preview
+ * before any changes are applied.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-15
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/modelSyncEngine.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Button = swtImports.Button;
+    var Combo = swtImports.Combo;
+    var Group = swtImports.Group;
+    var Text = swtImports.Text;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var TabFolder = swtImports.TabFolder;
+    var TabItem = swtImports.TabItem;
+    var Color = swtImports.Color;
+    var Display = swtImports.Display;
+
+    var OutputStreamWriter = Java.type("java.io.OutputStreamWriter");
+    var FileOutputStream = Java.type("java.io.FileOutputStream");
+    var BufferedWriter = Java.type("java.io.BufferedWriter");
+    var File = Java.type("java.io.File");
+
+    try {
+        requireModel();
+        log.header("Model Sync");
+
+        // =================================================================
+        // Helpers
+        // =================================================================
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        function csvEscape(value) {
+            if (value === null || value === undefined) return "";
+            var str = String(value);
+            if (str.indexOf(",") !== -1 || str.indexOf('"') !== -1 || str.indexOf("\n") !== -1 || str.indexOf("\r") !== -1) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        }
+
+        function revealInTree(id) {
+            try {
+                var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+                var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+                var StructuredSelection = Java.type("org.eclipse.jface.viewers.StructuredSelection");
+                var PlatformUI = Java.type("org.eclipse.ui.PlatformUI");
+                var eObject = null;
+                var models = IEditorModelManager.INSTANCE.getModels();
+                for (var m = 0; m < models.size(); m++) {
+                    eObject = ArchimateModelUtils.getObjectByID(models.get(m), id);
+                    if (eObject) break;
+                }
+                if (!eObject) return;
+                var page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+                var treeView = page.showView("com.archimatetool.editor.treeModelView");
+                treeView.getViewer().setSelection(new StructuredSelection(eObject), true);
+            } catch (e) {
+                log.error("Navigation failed: " + e.toString());
+            }
+        }
+
+        // =================================================================
+        // Phase 1: File Selection
+        // =================================================================
+
+        var filePath = window.promptOpenFile({
+            title: "Select CSV or JSON file to sync",
+            filterExtensions: ["*.csv;*.json", "*.csv", "*.json"],
+            filterNames: ["All Supported (CSV, JSON)", "CSV Files", "JSON Files"]
+        });
+        if (!filePath) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        log.info("Reading: " + filePath);
+
+        // Parse file
+        var isJson = filePath.toLowerCase().endsWith(".json");
+        var rawData;
+        if (isJson) {
+            rawData = modelSyncEngine.parseJsonFile(filePath);
+        } else {
+            rawData = modelSyncEngine.parseCsvFile(filePath);
+        }
+
+        if (rawData.error) {
+            window.alert("File Error\n\n" + rawData.error);
+            log.error(rawData.error);
+            return;
+        }
+
+        // Normalize records
+        var records = modelSyncEngine.normalizeRecords(rawData);
+        var elemCount = records.elements.length;
+        var relCount = records.relationships.length;
+
+        log.info("Parsed " + elemCount + " elements, " + relCount + " relationships from file.");
+
+        if (elemCount === 0 && relCount === 0) {
+            window.alert("No elements or relationships found in the file.");
+            return;
+        }
+
+        // =================================================================
+        // Phase 2: Configuration Dialog
+        // =================================================================
+
+        var configResult = false;
+        var syncConfig = {
+            mode: "create-update",
+            externalKeyProp: "",
+            allowNameTypeMatch: false
+        };
+
+        var w = {};
+
+        var configDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(configDialog.dialog).configureShell(newShell);
+                    newShell.setText("Model Sync");
+                    newShell.setMinimumSize(500, 460);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(configDialog.dialog).createDialogArea(parent);
+
+                    configDialog.dialog.setTitle("Sync Configuration");
+                    configDialog.dialog.setMessage(
+                        elemCount + " element" + (elemCount !== 1 ? "s" : "") + ", " +
+                        relCount + " relationship" + (relCount !== 1 ? "s" : "") +
+                        " from " + new File(filePath).getName()
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(12, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // --- Input summary ---
+                    var summaryLabel = new Label(container, SWT.NONE);
+                    summaryLabel.setText("Input file:");
+                    GridDataFactory.swtDefaults().applyTo(summaryLabel);
+
+                    var summaryValue = new Label(container, SWT.NONE);
+                    summaryValue.setText(new File(filePath).getName());
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(summaryValue);
+
+                    // --- Sync mode ---
+                    var modeLabel = new Label(container, SWT.NONE);
+                    modeLabel.setText("Sync mode:");
+                    GridDataFactory.swtDefaults().applyTo(modeLabel);
+
+                    w.modeCombo = new Combo(container, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    w.modeCombo.setItems(javaStringArray([
+                        "Create Only",
+                        "Create + Update",
+                        "Create + Update + Delete"
+                    ]));
+                    w.modeCombo.select(1);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.modeCombo);
+
+                    // --- Matching options ---
+                    var matchGroup = new Group(container, SWT.NONE);
+                    matchGroup.setText("Matching Options");
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 6).applyTo(matchGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(matchGroup);
+
+                    var keyLabel = new Label(matchGroup, SWT.NONE);
+                    keyLabel.setText("External key property:");
+                    GridDataFactory.swtDefaults().applyTo(keyLabel);
+
+                    w.externalKeyText = new Text(matchGroup, SWT.BORDER);
+                    w.externalKeyText.setMessage("e.g., cmdb-id (leave empty for none)");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.externalKeyText);
+
+                    w.nameTypeCheck = new Button(matchGroup, SWT.CHECK);
+                    w.nameTypeCheck.setText("Enable name+type fallback matching");
+                    w.nameTypeCheck.setSelection(false);
+                    GridDataFactory.fillDefaults().span(2, 1).applyTo(w.nameTypeCheck);
+
+                    var matchHint = new Label(matchGroup, SWT.WRAP);
+                    matchHint.setText("Matching cascade: ID (definitive) > External key > Name+type (opt-in, warns on single match, skips ambiguous)");
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).hint(400, SWT.DEFAULT).applyTo(matchHint);
+
+                    // --- Delete scope warning ---
+                    w.deleteWarning = new Label(container, SWT.WRAP);
+                    w.deleteWarning.setText("");
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).hint(SWT.DEFAULT, 40).applyTo(w.deleteWarning);
+
+                    w.modeCombo.addSelectionListener({
+                        widgetSelected: function () {
+                            if (w.modeCombo.getSelectionIndex() === 2) {
+                                w.deleteWarning.setText("WARNING: Delete mode will remove model elements of matching types that are not in the input file. Review the dry-run carefully before applying.");
+                            } else {
+                                w.deleteWarning.setText("");
+                            }
+                            w.deleteWarning.getParent().layout(true);
+                        },
+                        widgetDefaultSelected: function () {}
+                    });
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    configDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Generate Dry Run", true);
+                    configDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", false);
+                },
+
+                okPressed: function () {
+                    var modeIdx = w.modeCombo.getSelectionIndex();
+                    syncConfig.mode = modeIdx === 0 ? "create" :
+                        (modeIdx === 1 ? "create-update" : "create-update-delete");
+                    syncConfig.externalKeyProp = w.externalKeyText.getText().trim();
+                    syncConfig.allowNameTypeMatch = w.nameTypeCheck.getSelection();
+
+                    configResult = true;
+                    Java.super(configDialog.dialog).okPressed();
+                },
+
+                getInitialSize: function () {
+                    return new Point(540, 480);
+                }
+            })
+        };
+
+        configDialog.dialog.setHelpAvailable(false);
+        configDialog.dialog.open();
+
+        if (!configResult) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // =================================================================
+        // Phase 3: Build Dry-Run Plan
+        // =================================================================
+
+        log.info("Building model index...");
+        var modelIndex = modelSyncEngine.buildModelIndex({
+            externalKeyProp: syncConfig.externalKeyProp
+        });
+
+        log.info("Generating dry-run diff plan...");
+        var plan = modelSyncEngine.generateDiffPlan(records, modelIndex, syncConfig);
+
+        var s = plan.summary;
+        log.info("Dry run: " + s.createCount + " create, " + s.updateCount + " update, " +
+            s.deleteCount + " delete, " + s.skipCount + " skip, " + s.ambiguousCount + " ambiguous");
+        if (s.relCreateCount || s.relUpdateCount || s.relSkipCount || s.relAmbiguousCount) {
+            log.info("Relationships: " + s.relCreateCount + " create, " + s.relUpdateCount + " update, " +
+                s.relSkipCount + " skip, " + s.relAmbiguousCount + " ambiguous");
+        }
+
+        // =================================================================
+        // Phase 4: Results Dialog
+        // =================================================================
+
+        var EXPORT_CSV_ID = 42;
+        var APPLY_CHANGES_ID = 43;
+        var deleteColor = null;
+
+        // Build row arrays
+        var createRows = [];
+        for (var i = 0; i < plan.toCreate.length; i++) {
+            var item = plan.toCreate[i];
+            var propStr = "";
+            if (item.record.properties) {
+                var pk = Object.keys(item.record.properties);
+                if (pk.length > 0) propStr = pk.join(", ");
+            }
+            createRows.push({
+                rowNum: item._rowNum,
+                name: item.record.name,
+                type: item.record.type,
+                properties: propStr
+            });
+        }
+        // Include relationship creates
+        for (var i = 0; i < (plan.relToCreate || []).length; i++) {
+            var item = plan.relToCreate[i];
+            createRows.push({
+                rowNum: item._rowNum,
+                name: (item.record.sourceName || item.record.sourceId) + " -> " + (item.record.targetName || item.record.targetId),
+                type: item.record.type + " (rel)",
+                properties: item.record.name || ""
+            });
+        }
+
+        var updateRows = [];
+        for (var i = 0; i < plan.toUpdate.length; i++) {
+            var item = plan.toUpdate[i];
+            var changeStr = item.changes.map(function (c) {
+                return c.field + ": " + c.oldValue + " -> " + c.newValue;
+            }).join("; ");
+            updateRows.push({
+                rowNum: item._rowNum,
+                name: item.element.name || "(unnamed)",
+                type: item.element.type,
+                matchedBy: item.matchedBy,
+                changes: changeStr,
+                id: item.element.id
+            });
+        }
+        // Include relationship updates
+        for (var i = 0; i < (plan.relToUpdate || []).length; i++) {
+            var item = plan.relToUpdate[i];
+            var changeStr = item.changes.map(function (c) {
+                return c.field + ": " + c.oldValue + " -> " + c.newValue;
+            }).join("; ");
+            updateRows.push({
+                rowNum: item._rowNum,
+                name: item.relationship.name || "(unnamed)",
+                type: item.relationship.type + " (rel)",
+                matchedBy: item.matchedBy,
+                changes: changeStr,
+                id: item.relationship.id
+            });
+        }
+
+        var deleteRows = [];
+        for (var i = 0; i < plan.toDelete.length; i++) {
+            var item = plan.toDelete[i];
+            deleteRows.push({
+                name: item.element.name || "(unnamed)",
+                type: item.element.type,
+                views: item.viewCount,
+                rels: item.relCount,
+                id: item.element.id
+            });
+        }
+
+        var ambiguousRows = [];
+        for (var i = 0; i < plan.ambiguous.length; i++) {
+            var item = plan.ambiguous[i];
+            var candidateNames = item.candidates ? item.candidates.map(function (c) {
+                return (c.name || "(unnamed)") + " (" + c.id + ")";
+            }).join("; ") : (item.reason || "");
+            ambiguousRows.push({
+                rowNum: item._rowNum,
+                name: item.record.name,
+                type: item.record.type,
+                matchCount: item.matchCount || "",
+                candidates: candidateNames
+            });
+        }
+        // Include relationship ambiguous
+        for (var i = 0; i < (plan.relAmbiguous || []).length; i++) {
+            var item = plan.relAmbiguous[i];
+            ambiguousRows.push({
+                rowNum: item._rowNum,
+                name: item.record.name || (item.record.sourceName + " -> " + item.record.targetName),
+                type: item.record.type + " (rel)",
+                matchCount: "",
+                candidates: item.reason || ""
+            });
+        }
+
+        var skipRows = [];
+        for (var i = 0; i < plan.toSkip.length; i++) {
+            var item = plan.toSkip[i];
+            skipRows.push({
+                rowNum: item._rowNum,
+                name: item.record.name,
+                type: item.record.type,
+                matchedBy: item.matchedBy || "",
+                id: item.element ? item.element.id : ""
+            });
+        }
+        // Include relationship skips
+        for (var i = 0; i < (plan.relToSkip || []).length; i++) {
+            var item = plan.relToSkip[i];
+            skipRows.push({
+                rowNum: item._rowNum,
+                name: item.record.name || "",
+                type: item.record.type + " (rel)",
+                matchedBy: item.matchedBy || "",
+                id: item.relationship ? item.relationship.id : ""
+            });
+        }
+
+        var createCols = [
+            ["Row", 50, "rowNum"],
+            ["Name", 200, "name"],
+            ["Type", 150, "type"],
+            ["Properties", 200, "properties"]
+        ];
+
+        var updateCols = [
+            ["Row", 50, "rowNum"],
+            ["Name", 150, "name"],
+            ["Type", 120, "type"],
+            ["Matched By", 110, "matchedBy"],
+            ["Changes", 250, "changes"],
+            ["ID", 100, "id"]
+        ];
+
+        var deleteCols = [
+            ["Name", 180, "name"],
+            ["Type", 130, "type"],
+            ["Views", 60, "views"],
+            ["Relationships", 90, "rels"],
+            ["ID", 120, "id"]
+        ];
+
+        var ambiguousCols = [
+            ["Row", 50, "rowNum"],
+            ["Name", 150, "name"],
+            ["Type", 120, "type"],
+            ["Match Count", 90, "matchCount"],
+            ["Candidates", 300, "candidates"]
+        ];
+
+        var skipCols = [
+            ["Row", 50, "rowNum"],
+            ["Name", 180, "name"],
+            ["Type", 130, "type"],
+            ["Matched By", 120, "matchedBy"],
+            ["ID", 120, "id"]
+        ];
+
+        // Mode labels
+        var modeLabels = {
+            "create": "Create Only",
+            "create-update": "Create + Update",
+            "create-update-delete": "Create + Update + Delete"
+        };
+
+        function populateTable(table, rows, columns, sortCol, ascending) {
+            table.removeAll();
+            var sorted = rows.slice().sort(function (a, b) {
+                var key = columns[sortCol][2];
+                var va = a[key];
+                var vb = b[key];
+                if (typeof va === "number" && typeof vb === "number") {
+                    return ascending ? va - vb : vb - va;
+                }
+                var cmp = String(va || "").localeCompare(String(vb || ""));
+                return ascending ? cmp : -cmp;
+            });
+            for (var i = 0; i < sorted.length; i++) {
+                var row = sorted[i];
+                var item = new TableItem(table, SWT.NONE);
+                var texts = [];
+                for (var c = 0; c < columns.length; c++) {
+                    texts.push(String(row[columns[c][2]] !== undefined ? row[columns[c][2]] : ""));
+                }
+                item.setText(javaStringArray(texts));
+                if (row.id) item.setData("id", row.id);
+                // Red for delete rows with view refs
+                if (row.views !== undefined && row.views > 0 && deleteColor) {
+                    for (var c = 0; c < columns.length; c++) {
+                        item.setForeground(c, deleteColor);
+                    }
+                }
+            }
+        }
+
+        function buildSortableTable(parent, rows, columns, height) {
+            var sortCol = { value: 0 };
+            var ascending = { value: true };
+
+            var table = new Table(parent, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+            table.setHeaderVisible(true);
+            table.setLinesVisible(true);
+            GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, height || 300).applyTo(table);
+
+            for (var c = 0; c < columns.length; c++) {
+                var col = new TableColumn(table, SWT.NONE);
+                col.setText(columns[c][0]);
+                col.setWidth(columns[c][1]);
+                col.setData("colIndex", c);
+                col.addSelectionListener({
+                    widgetSelected: function (e) {
+                        var clicked = e.widget.getData("colIndex");
+                        if (clicked === sortCol.value) {
+                            ascending.value = !ascending.value;
+                        } else {
+                            sortCol.value = clicked;
+                            ascending.value = true;
+                        }
+                        table.setSortColumn(e.widget);
+                        table.setSortDirection(ascending.value ? SWT.UP : SWT.DOWN);
+                        populateTable(table, rows, columns, sortCol.value, ascending.value);
+                    },
+                    widgetDefaultSelected: function () {}
+                });
+            }
+
+            table.setSortColumn(table.getColumn(0));
+            table.setSortDirection(SWT.UP);
+            populateTable(table, rows, columns, 0, true);
+
+            table.addListener(SWT.MouseDoubleClick, function () {
+                var sel = table.getSelection();
+                if (sel.length === 0) return;
+                var id = sel[0].getData("id");
+                if (id) revealInTree(id);
+            });
+
+            return table;
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Model Sync");
+                    newShell.setMinimumSize(900, 550);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                getShellStyle: function () {
+                    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+                    var display = Display.getCurrent();
+                    deleteColor = new Color(display, 200, 50, 50);
+
+                    var totalOps = s.createCount + s.updateCount + s.deleteCount +
+                        (s.relCreateCount || 0) + (s.relUpdateCount || 0);
+                    myDialog.dialog.setTitle("Dry-Run Preview");
+                    myDialog.dialog.setMessage(
+                        totalOps + " operation" + (totalOps !== 1 ? "s" : "") +
+                        " planned (" + s.createCount + " create, " + s.updateCount + " update, " +
+                        s.deleteCount + " delete, " + s.ambiguousCount + " ambiguous)"
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    var tabFolder = new TabFolder(container, SWT.NONE);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(tabFolder);
+
+                    // --- Summary tab ---
+                    var summaryTab = new TabItem(tabFolder, SWT.NONE);
+                    summaryTab.setText("Summary");
+                    var summaryComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(16, 12).spacing(8, 6).applyTo(summaryComp);
+
+                    var inputTotal = elemCount + relCount;
+                    var lines = [
+                        "Input file:              " + new File(filePath).getName(),
+                        "Sync mode:               " + modeLabels[syncConfig.mode],
+                        "External key property:   " + (syncConfig.externalKeyProp || "(none)"),
+                        "Name+type matching:      " + (syncConfig.allowNameTypeMatch ? "Enabled" : "Disabled"),
+                        "",
+                        "Input records:           " + inputTotal + " (" + elemCount + " elements, " + relCount + " relationships)",
+                        "",
+                        "Elements:",
+                        "  To create:             " + s.createCount,
+                        "  To update:             " + s.updateCount,
+                        "  To delete:             " + s.deleteCount,
+                        "  Skipped:               " + s.skipCount,
+                        "  Ambiguous:             " + s.ambiguousCount
+                    ];
+
+                    if (relCount > 0) {
+                        lines.push("");
+                        lines.push("Relationships:");
+                        lines.push("  To create:             " + (s.relCreateCount || 0));
+                        lines.push("  To update:             " + (s.relUpdateCount || 0));
+                        lines.push("  Skipped:               " + (s.relSkipCount || 0));
+                        lines.push("  Ambiguous:             " + (s.relAmbiguousCount || 0));
+                    }
+
+                    lines.push("");
+                    lines.push("Reconciliation:          " + inputTotal + " input = " +
+                        s.createCount + " create + " + s.updateCount + " update + " +
+                        s.skipCount + " skip + " + s.ambiguousCount + " ambiguous");
+
+                    for (var li = 0; li < lines.length; li++) {
+                        var lbl = new Label(summaryComp, SWT.NONE);
+                        lbl.setText(lines[li]);
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(lbl);
+                    }
+                    summaryTab.setControl(summaryComp);
+
+                    // --- To Create tab ---
+                    var createTab = new TabItem(tabFolder, SWT.NONE);
+                    createTab.setText("To Create (" + createRows.length + ")");
+                    var createComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(createComp);
+
+                    if (createRows.length > 0) {
+                        buildSortableTable(createComp, createRows, createCols, 300);
+                    } else {
+                        var noCreate = new Label(createComp, SWT.NONE);
+                        noCreate.setText("No elements to create.");
+                        GridDataFactory.fillDefaults().grab(true, true).applyTo(noCreate);
+                    }
+
+                    var createFooter = new Label(createComp, SWT.NONE);
+                    createFooter.setText(createRows.length + " records  |  Click headers to sort");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(createFooter);
+                    createTab.setControl(createComp);
+
+                    // --- To Update tab ---
+                    var updateTab = new TabItem(tabFolder, SWT.NONE);
+                    updateTab.setText("To Update (" + updateRows.length + ")");
+                    var updateComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(updateComp);
+
+                    if (updateRows.length > 0) {
+                        buildSortableTable(updateComp, updateRows, updateCols, 300);
+                    } else {
+                        var noUpdate = new Label(updateComp, SWT.NONE);
+                        noUpdate.setText("No elements to update.");
+                        GridDataFactory.fillDefaults().grab(true, true).applyTo(noUpdate);
+                    }
+
+                    var updateFooter = new Label(updateComp, SWT.NONE);
+                    updateFooter.setText(updateRows.length + " records  |  Double-click to reveal  |  Click headers to sort");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(updateFooter);
+                    updateTab.setControl(updateComp);
+
+                    // --- To Delete tab ---
+                    if (syncConfig.mode === "create-update-delete") {
+                        var deleteTab = new TabItem(tabFolder, SWT.NONE);
+                        deleteTab.setText("To Delete (" + deleteRows.length + ")");
+                        var deleteComp = new Composite(tabFolder, SWT.NONE);
+                        GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(deleteComp);
+
+                        if (deleteRows.length > 0) {
+                            buildSortableTable(deleteComp, deleteRows, deleteCols, 300);
+
+                            var viewWarnings = deleteRows.filter(function (r) { return r.views > 0; }).length;
+                            if (viewWarnings > 0) {
+                                var delWarnLabel = new Label(deleteComp, SWT.NONE);
+                                delWarnLabel.setText("WARNING: " + viewWarnings + " element(s) highlighted in red have view references.");
+                                GridDataFactory.fillDefaults().grab(true, false).applyTo(delWarnLabel);
+                            }
+                        } else {
+                            var noDelete = new Label(deleteComp, SWT.NONE);
+                            noDelete.setText("No elements to delete.");
+                            GridDataFactory.fillDefaults().grab(true, true).applyTo(noDelete);
+                        }
+
+                        var deleteFooter = new Label(deleteComp, SWT.NONE);
+                        deleteFooter.setText(deleteRows.length + " records  |  Double-click to reveal  |  Click headers to sort");
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(deleteFooter);
+                        deleteTab.setControl(deleteComp);
+                    }
+
+                    // --- Ambiguous tab ---
+                    var ambiguousTab = new TabItem(tabFolder, SWT.NONE);
+                    ambiguousTab.setText("Ambiguous (" + ambiguousRows.length + ")");
+                    var ambiguousComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(ambiguousComp);
+
+                    if (ambiguousRows.length > 0) {
+                        buildSortableTable(ambiguousComp, ambiguousRows, ambiguousCols, 300);
+                    } else {
+                        var noAmbiguous = new Label(ambiguousComp, SWT.NONE);
+                        noAmbiguous.setText("No ambiguous matches.");
+                        GridDataFactory.fillDefaults().grab(true, true).applyTo(noAmbiguous);
+                    }
+
+                    var ambiguousFooter = new Label(ambiguousComp, SWT.NONE);
+                    ambiguousFooter.setText(ambiguousRows.length + " records  |  Ambiguous records are never auto-applied");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(ambiguousFooter);
+                    ambiguousTab.setControl(ambiguousComp);
+
+                    // --- Skipped tab ---
+                    var skippedTab = new TabItem(tabFolder, SWT.NONE);
+                    skippedTab.setText("Skipped (" + skipRows.length + ")");
+                    var skippedComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(skippedComp);
+
+                    if (skipRows.length > 0) {
+                        buildSortableTable(skippedComp, skipRows, skipCols, 300);
+                    } else {
+                        var noSkipped = new Label(skippedComp, SWT.NONE);
+                        noSkipped.setText("No skipped records.");
+                        GridDataFactory.fillDefaults().grab(true, true).applyTo(noSkipped);
+                    }
+
+                    var skippedFooter = new Label(skippedComp, SWT.NONE);
+                    skippedFooter.setText(skipRows.length + " records  |  Double-click to reveal  |  Click headers to sort");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(skippedFooter);
+                    skippedTab.setControl(skippedComp);
+
+                    // Select first tab with content
+                    if (createRows.length > 0) {
+                        tabFolder.setSelection(1);
+                    } else if (updateRows.length > 0) {
+                        tabFolder.setSelection(2);
+                    }
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, EXPORT_CSV_ID, "Export Dry Run CSV", false);
+                    var totalOps = s.createCount + s.updateCount + s.deleteCount +
+                        (s.relCreateCount || 0) + (s.relUpdateCount || 0);
+                    if (totalOps > 0) {
+                        myDialog.dialog.createButton(parent, APPLY_CHANGES_ID, "Apply Changes...", false);
+                    }
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                buttonPressed: function (buttonId) {
+                    if (buttonId === EXPORT_CSV_ID) {
+                        exportDryRunCsv();
+                        return;
+                    }
+                    if (buttonId === APPLY_CHANGES_ID) {
+                        applyChanges();
+                        return;
+                    }
+                    Java.super(myDialog.dialog).okPressed();
+                },
+
+                close: function () {
+                    if (deleteColor && !deleteColor.isDisposed()) deleteColor.dispose();
+                    return Java.super(myDialog.dialog).close();
+                },
+
+                getInitialSize: function () {
+                    return new Point(1000, 650);
+                }
+            })
+        };
+
+        // =================================================================
+        // Export Dry Run CSV
+        // =================================================================
+
+        function exportDryRunCsv() {
+            var outputDir = window.promptOpenDirectory({
+                title: "Select output directory for dry-run report"
+            });
+            if (!outputDir) return;
+
+            var baseName = new File(filePath).getName().replace(/\.[^.]+$/, "");
+            var now = new Date();
+            var timestamp = now.getFullYear() +
+                String(now.getMonth() + 1).padStart(2, "0") +
+                String(now.getDate()).padStart(2, "0") + "_" +
+                String(now.getHours()).padStart(2, "0") +
+                String(now.getMinutes()).padStart(2, "0");
+            var reportPath = outputDir + File.separator + baseName + "_dry_run_" + timestamp + ".csv";
+
+            var writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(reportPath), "UTF-8"));
+            try {
+                writer.write("Row,Action,Name,Type,Matched By,Changes,ID");
+                writer.newLine();
+
+                for (var i = 0; i < plan.toCreate.length; i++) {
+                    var item = plan.toCreate[i];
+                    writer.write([item._rowNum, "create", csvEscape(item.record.name), csvEscape(item.record.type), "", "", ""].join(","));
+                    writer.newLine();
+                }
+                for (var i = 0; i < plan.toUpdate.length; i++) {
+                    var item = plan.toUpdate[i];
+                    var changeStr = item.changes.map(function (c) { return c.field; }).join("; ");
+                    writer.write([item._rowNum, "update", csvEscape(item.element.name), csvEscape(item.element.type), item.matchedBy, csvEscape(changeStr), item.element.id].join(","));
+                    writer.newLine();
+                }
+                for (var i = 0; i < plan.toDelete.length; i++) {
+                    var item = plan.toDelete[i];
+                    writer.write(["", "delete", csvEscape(item.element.name), csvEscape(item.element.type), "", "views:" + item.viewCount + " rels:" + item.relCount, item.element.id].join(","));
+                    writer.newLine();
+                }
+                for (var i = 0; i < plan.toSkip.length; i++) {
+                    var item = plan.toSkip[i];
+                    var id = item.element ? item.element.id : "";
+                    writer.write([item._rowNum, "skip", csvEscape(item.record.name), csvEscape(item.record.type), item.matchedBy || "", csvEscape(item.reason || ""), id].join(","));
+                    writer.newLine();
+                }
+                for (var i = 0; i < plan.ambiguous.length; i++) {
+                    var item = plan.ambiguous[i];
+                    writer.write([item._rowNum, "ambiguous", csvEscape(item.record.name), csvEscape(item.record.type), "", csvEscape(item.matchCount + " candidates"), ""].join(","));
+                    writer.newLine();
+                }
+            } finally {
+                writer.close();
+            }
+
+            log.success("Exported dry-run report to " + reportPath);
+            MessageDialog.openInformation(shell, "Export Complete",
+                "Dry-run report exported to:\n" + reportPath);
+        }
+
+        // =================================================================
+        // Apply Changes
+        // =================================================================
+
+        function applyChanges() {
+            var totalOps = s.createCount + s.updateCount + s.deleteCount +
+                (s.relCreateCount || 0) + (s.relUpdateCount || 0);
+
+            var confirmMsg = "Apply " + totalOps + " changes to the model?\n\n" +
+                "  Elements to create: " + s.createCount + "\n" +
+                "  Elements to update: " + s.updateCount + "\n" +
+                "  Elements to delete: " + s.deleteCount + "\n";
+
+            if (s.relCreateCount || s.relUpdateCount) {
+                confirmMsg += "  Relationships to create: " + (s.relCreateCount || 0) + "\n" +
+                    "  Relationships to update: " + (s.relUpdateCount || 0) + "\n";
+            }
+
+            confirmMsg += "\nAmbiguous records (" + s.ambiguousCount + ") will be skipped.\n" +
+                "This will modify the model. Continue?";
+
+            if (!window.confirm(confirmMsg)) {
+                log.warn("Apply cancelled.");
+                return;
+            }
+
+            log.info("Applying changes...");
+            var outcomes = modelSyncEngine.applyDiffPlan(plan, modelIndex);
+
+            // Generate report
+            var baseName = new File(filePath).getName().replace(/\.[^.]+$/, "");
+            var now = new Date();
+            var timestamp = now.getFullYear() +
+                String(now.getMonth() + 1).padStart(2, "0") +
+                String(now.getDate()).padStart(2, "0") + "_" +
+                String(now.getHours()).padStart(2, "0") +
+                String(now.getMinutes()).padStart(2, "0");
+
+            var outputDir = new File(filePath).getParent();
+            var reportPath = outputDir + File.separator + baseName + "_sync_report_" + timestamp + ".csv";
+
+            try {
+                modelSyncEngine.generateReport(plan, outcomes, reportPath);
+                log.success("Report saved to " + reportPath);
+            } catch (e) {
+                log.warn("Could not save report: " + e.toString());
+            }
+
+            log.success("Sync complete:");
+            log.detail("  Elements created: " + outcomes.elementsCreated);
+            log.detail("  Elements updated: " + outcomes.elementsUpdated);
+            log.detail("  Elements deleted: " + outcomes.elementsDeleted);
+            log.detail("  Relationships created: " + outcomes.relsCreated);
+            log.detail("  Relationships updated: " + outcomes.relsUpdated);
+            if (outcomes.failed > 0) log.warn("  Failed: " + outcomes.failed);
+
+            MessageDialog.openInformation(shell, "Sync Complete",
+                "Model sync completed.\n\n" +
+                "Elements created: " + outcomes.elementsCreated + "\n" +
+                "Elements updated: " + outcomes.elementsUpdated + "\n" +
+                "Elements deleted: " + outcomes.elementsDeleted + "\n" +
+                "Relationships created: " + outcomes.relsCreated + "\n" +
+                "Relationships updated: " + outcomes.relsUpdated +
+                (outcomes.failed > 0 ? "\nFailed: " + outcomes.failed : "") +
+                "\n\nReport saved to:\n" + reportPath);
+        }
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Model Sync complete.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

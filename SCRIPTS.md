@@ -67,6 +67,13 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 |--------|-------------|
 | **Roadmap Gap Scaffold Generator** | Wizard-driven scaffold creation for migration planning: plateaus, gaps, work packages, deliverables, and implementation events with auto-linked relationships and optional roadmap view generation with color coding presets. |
 
+## Utilities
+
+| Script | Description |
+|--------|-------------|
+| **Naming and Property Standards Enforcer** | Validates model elements against configurable naming, property, and documentation standards. Reports violations in a tabbed dialog with auto-fix suggestions for whitespace cleanup and default property values. Supports check-only and apply modes with CSV export. |
+| **Model Sync** | CSV/JSON upsert with full dry-run preview. Imports elements and relationships, matching against existing model by ID, external key, or name+type. Supports create-only, create+update, and create+update+delete modes with confirmation and audit report generation. |
+
 ## Server
 
 | Script | Description |
