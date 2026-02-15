@@ -18,7 +18,8 @@ load(__DIR__ + "lib/requireModel.js");
     "use strict";
 
     var BufferedReader = Java.type("java.io.BufferedReader");
-    var FileReader = Java.type("java.io.FileReader");
+    var InputStreamReader = Java.type("java.io.InputStreamReader");
+    var FileInputStream = Java.type("java.io.FileInputStream");
 
     try {
         requireModel();
@@ -86,7 +87,7 @@ load(__DIR__ + "lib/requireModel.js");
         // Read CSV with multiline field support:
         // Accumulate physical lines into logical rows, joining when inside a quoted field.
         var lines = [];
-        var reader = new BufferedReader(new FileReader(filePath));
+        var reader = new BufferedReader(new InputStreamReader(new FileInputStream(filePath), "UTF-8"));
         try {
             var physicalLine;
             var pending = null;
@@ -189,8 +190,8 @@ load(__DIR__ + "lib/requireModel.js");
                     }
                 }
 
-                // Check for duplicate by type + name (if no ID)
-                if (!elId && elName) {
+                // Check for duplicate by type + name (fallback when ID not found)
+                if (elName) {
                     var found = false;
                     $("element").each(function (existing) {
                         if (!found && existing.type === elType &&
@@ -292,7 +293,7 @@ load(__DIR__ + "lib/requireModel.js");
                     }
                 }
 
-                // Prefer ID-based lookup (reliable), fall back to name (ambiguous)
+                // Resolve source and target elements
                 var sourceEl = findElement(srcIdVal || srcVal);
                 var targetEl = findElement(tgtIdVal || tgtVal);
 
@@ -304,6 +305,24 @@ load(__DIR__ + "lib/requireModel.js");
                 if (!targetEl) {
                     log.warn("Row " + (r + 1) + ": target not found '" + tgtVal + "', skipping.");
                     failed++;
+                    continue;
+                }
+
+                // Check for duplicate by source + type + target + name (fallback when ID not found)
+                var relDupe = false;
+                $("relationship").each(function (existing) {
+                    if (!relDupe && existing.type === relType &&
+                        existing.source && existing.source.id === sourceEl.id &&
+                        existing.target && existing.target.id === targetEl.id) {
+                        var existingName = (existing.name || "").trim().toLowerCase();
+                        var csvName = relName.toLowerCase();
+                        if (existingName === csvName) {
+                            relDupe = true;
+                        }
+                    }
+                });
+                if (relDupe) {
+                    skipped++;
                     continue;
                 }
 

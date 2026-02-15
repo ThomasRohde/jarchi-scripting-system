@@ -18,7 +18,8 @@ load(__DIR__ + "lib/resolveSelection.js");
 (function () {
     "use strict";
 
-    var FileWriter = Java.type("java.io.FileWriter");
+    var OutputStreamWriter = Java.type("java.io.OutputStreamWriter");
+    var FileOutputStream = Java.type("java.io.FileOutputStream");
     var BufferedWriter = Java.type("java.io.BufferedWriter");
     var File = Java.type("java.io.File");
 
@@ -40,7 +41,7 @@ load(__DIR__ + "lib/resolveSelection.js");
      * Each row is an array of string values.
      */
     function writeCsv(filePath, headers, rows) {
-        var writer = new BufferedWriter(new FileWriter(filePath));
+        var writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), "UTF-8"));
         try {
             writer.write(headers.map(csvEscape).join(","));
             writer.newLine();

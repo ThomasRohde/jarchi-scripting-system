@@ -362,7 +362,9 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
         titleNote.textAlignment = TEXT_ALIGN_CENTER;
 
         // --- Subtitle (model name + date) ---
-        var today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
+        var SimpleDateFormat = Java.type("java.text.SimpleDateFormat");
+        var JDate = Java.type("java.util.Date");
+        var today = new SimpleDateFormat("yyyy-MM-dd").format(new JDate());
         var subtitleY = TITLE_Y + TITLE_HEIGHT;
         var subtitleNote = dashView.createObject("note", MARGIN_LEFT, subtitleY, totalGridWidth, SUBTITLE_HEIGHT);
         subtitleNote.setText("Model: " + (model.name || "unnamed") + "  \u2022  Generated: " + today);
