@@ -172,6 +172,12 @@ var myDialog = {
             Java.super(myDialog.dialog).configureShell(newShell);
             newShell.setText("My Dialog");
         },
+        isResizable: function() {
+            return true;
+        },
+        getShellStyle: function() {
+            return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+        },
         createDialogArea: function(parent) {
             var area = Java.super(myDialog.dialog).createDialogArea(parent);
             myDialog.dialog.setMessage("Enter information:");
@@ -249,6 +255,7 @@ table.addListener(SWT.Selection, function(event) { /* handle row select */ });
 6. **Double path separator** — `__DIR__` already has trailing separator
 7. **Unchecked selection** — use `resolveSelection` (not raw `$(selection)` filters): `selectedConcepts("element")` for elements, `activeView()` for views
 8. **Help button on dialogs** — always call `dialog.setHelpAvailable(false)` before `open()` to remove the default help button from `TitleAreaDialog`
+9. **Non-resizable dialogs** — `isResizable()` alone does not work in GraalJS `Java.extend` dialogs because the override may not dispatch correctly during Java-side shell creation. You must also override `getShellStyle()` to include `SWT.RESIZE | SWT.MAX` in the shell style flags. Always add both `isResizable` and `getShellStyle` overrides together (see Dialog Pattern above)
 
 ## Reference Files
 

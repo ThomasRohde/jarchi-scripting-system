@@ -241,6 +241,12 @@ var myDialog = {
             Java.super(myDialog.dialog).configureShell(newShell);
             newShell.setText("User Input");
         },
+        isResizable: function() {
+            return true;
+        },
+        getShellStyle: function() {
+            return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+        },
         createDialogArea: function(parent) {
             var area = Java.super(myDialog.dialog).createDialogArea(parent);
             myDialog.dialog.setMessage("Please enter your name:");
@@ -572,7 +578,38 @@ if (!view) {
 }
 ```
 
-### Pitfall 7: Path Separator Issues
+### Pitfall 7: Non-Resizable Dialogs
+
+`isResizable()` alone does **not** make dialogs resizable in GraalJS. The `Java.extend` proxy may not dispatch the `isResizable()` override correctly during the Java-side `Dialog.create()` call chain, so the shell is created without `SWT.RESIZE` flags.
+
+❌ **Wrong:**
+```javascript
+var myDialog = {
+    dialog: new ExtendedDialog(shell, {
+        isResizable: function() { return true; },  // Not sufficient!
+        // ...
+    })
+};
+```
+
+✅ **Correct — override both `isResizable` and `getShellStyle`:**
+```javascript
+var myDialog = {
+    dialog: new ExtendedDialog(shell, {
+        isResizable: function() {
+            return true;
+        },
+        getShellStyle: function() {
+            return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+        },
+        // ...
+    })
+};
+```
+
+`getShellStyle()` is called by `Window.createShell()` when constructing the shell, so overriding it reliably sets the resize and maximize flags regardless of `isResizable()` dispatch.
+
+### Pitfall 8: Path Separator Issues
 
 ❌ **Wrong:**
 ```javascript
@@ -688,6 +725,12 @@ load(__DIR__ + "lib/resolveSelection.js");
                 configureShell: function (newShell) {
                     Java.super(myDialog.dialog).configureShell(newShell);
                     newShell.setText("Element Counter Results");
+                },
+                isResizable: function () {
+                    return true;
+                },
+                getShellStyle: function () {
+                    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
                 },
                 createDialogArea: function (parent) {
                     var area = Java.super(myDialog.dialog).createDialogArea(parent);

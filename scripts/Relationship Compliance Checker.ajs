@@ -1,0 +1,616 @@
+/**
+ * @name Relationship Compliance Checker
+ * @description Validates all relationships against the ArchiMate 3.1 specification matrix.
+ * Reports invalid relationships (errors) and weak modeling patterns (warnings)
+ * in a tabbed dialog with sortable tables, navigation, and CSV export.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-15
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/relationshipMatrix.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var TabFolder = swtImports.TabFolder;
+    var TabItem = swtImports.TabItem;
+    var Color = swtImports.Color;
+    var Display = swtImports.Display;
+
+    var FileWriter = Java.type("java.io.FileWriter");
+    var BufferedWriter = Java.type("java.io.BufferedWriter");
+    var File = Java.type("java.io.File");
+
+    try {
+        requireModel();
+        log.header("Relationship Compliance Checker");
+
+        // =================================================================
+        // Helpers
+        // =================================================================
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        function safeName(obj) {
+            if (!obj) return "(missing)";
+            return obj.name && obj.name.trim() ? obj.name : "(unnamed)";
+        }
+
+        function csvEscape(value) {
+            if (value === null || value === undefined) return "";
+            var str = String(value);
+            if (str.indexOf(",") !== -1 || str.indexOf('"') !== -1 || str.indexOf("\n") !== -1) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        }
+
+        function revealInTree(id) {
+            try {
+                var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+                var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+                var StructuredSelection = Java.type("org.eclipse.jface.viewers.StructuredSelection");
+                var PlatformUI = Java.type("org.eclipse.ui.PlatformUI");
+                var eObject = null;
+                var models = IEditorModelManager.INSTANCE.getModels();
+                for (var m = 0; m < models.size(); m++) {
+                    eObject = ArchimateModelUtils.getObjectByID(models.get(m), id);
+                    if (eObject) break;
+                }
+                if (!eObject) return;
+                var page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+                var treeView = page.showView("com.archimatetool.editor.treeModelView");
+                treeView.getViewer().setSelection(new StructuredSelection(eObject), true);
+            } catch (e) {
+                log.error("Navigation failed: " + e.toString());
+            }
+        }
+
+        // =================================================================
+        // Phase 1: Scan all relationships against the spec matrix
+        // =================================================================
+
+        var errors = [];
+        var allRels = [];
+        var relCount = 0;
+        var skippedCount = 0;
+
+        $("relationship").each(function (rel) {
+            relCount++;
+            if (relCount % 500 === 0) {
+                log.detail("  Scanned " + relCount + " relationships...");
+            }
+
+            var sourceType = rel.source ? rel.source.type : null;
+            var targetType = rel.target ? rel.target.type : null;
+            var relType = rel.type;
+
+            // Skip broken relationships
+            if (!sourceType || !targetType) {
+                errors.push({
+                    severity: "Error",
+                    relId: rel.id,
+                    relType: relType || "(unknown)",
+                    relName: rel.name || "",
+                    sourceName: safeName(rel.source),
+                    sourceType: sourceType || "(missing)",
+                    targetName: safeName(rel.target),
+                    targetType: targetType || "(missing)",
+                    message: "Missing source or target",
+                    remediation: "Delete or reconnect to valid elements."
+                });
+                return;
+            }
+
+            // Skip junctions and relationship-on-relationship
+            if (!relationshipMatrix.isKnownType(sourceType) || !relationshipMatrix.isKnownType(targetType)) {
+                skippedCount++;
+                return;
+            }
+
+            // Store for Phase 2 analysis
+            allRels.push({
+                id: rel.id,
+                type: relType,
+                name: rel.name || "",
+                sourceId: rel.source.id,
+                sourceName: safeName(rel.source),
+                sourceType: sourceType,
+                targetId: rel.target.id,
+                targetName: safeName(rel.target),
+                targetType: targetType
+            });
+
+            // Check against matrix
+            if (!relationshipMatrix.isAllowed(sourceType, targetType, relType)) {
+                var allowed = relationshipMatrix.getAllowed(sourceType, targetType);
+                var remediation;
+                if (allowed.length === 0) {
+                    remediation = "No relationships allowed from " + sourceType + " to " + targetType + ". Consider restructuring.";
+                } else {
+                    remediation = "Allowed: " + allowed.map(function (t) {
+                        return relationshipMatrix.getRelationshipLabel(t);
+                    }).join(", ") + ".";
+                }
+
+                errors.push({
+                    severity: "Error",
+                    relId: rel.id,
+                    relType: relType,
+                    relName: rel.name || "",
+                    sourceName: safeName(rel.source),
+                    sourceType: sourceType,
+                    targetName: safeName(rel.target),
+                    targetType: targetType,
+                    message: relationshipMatrix.getRelationshipLabel(relType) + " not allowed from " + sourceType + " to " + targetType,
+                    remediation: remediation
+                });
+            }
+        });
+
+        log.info("Scanned " + relCount + " relationships (" + skippedCount + " skipped: junctions/nested).");
+
+        // =================================================================
+        // Phase 2: Warning heuristics
+        // =================================================================
+
+        var warnings = [];
+        var warningBreakdown = {
+            associationOveruse: 0,
+            duplicateRelationships: 0,
+            bidirectionalDirected: 0,
+            selfRelationships: 0
+        };
+
+        // 2a: Association overuse
+        for (var i = 0; i < allRels.length; i++) {
+            var r = allRels[i];
+            if (r.type !== "association-relationship") continue;
+            var allowed = relationshipMatrix.getAllowed(r.sourceType, r.targetType);
+            var specific = allowed.filter(function (t) {
+                return t !== "association-relationship" && t !== "influence-relationship";
+            });
+            if (specific.length > 0) {
+                warningBreakdown.associationOveruse++;
+                warnings.push({
+                    severity: "Warning",
+                    relId: r.id,
+                    relType: r.type,
+                    relName: r.name,
+                    sourceName: r.sourceName,
+                    sourceType: r.sourceType,
+                    targetName: r.targetName,
+                    targetType: r.targetType,
+                    message: "Association where specific types available",
+                    remediation: "Consider: " + specific.map(function (t) {
+                        return relationshipMatrix.getRelationshipLabel(t);
+                    }).join(", ") + "."
+                });
+            }
+        }
+
+        // 2b: Duplicate relationships (same type, same source+target)
+        var relKeyMap = {};
+        for (var i = 0; i < allRels.length; i++) {
+            var r = allRels[i];
+            var key = r.sourceId + "|" + r.targetId + "|" + r.type;
+            if (!relKeyMap[key]) relKeyMap[key] = [];
+            relKeyMap[key].push(r);
+        }
+        var dupKeys = Object.keys(relKeyMap);
+        for (var k = 0; k < dupKeys.length; k++) {
+            var group = relKeyMap[dupKeys[k]];
+            if (group.length >= 2) {
+                for (var d = 1; d < group.length; d++) {
+                    var r = group[d];
+                    warningBreakdown.duplicateRelationships++;
+                    warnings.push({
+                        severity: "Warning",
+                        relId: r.id,
+                        relType: r.type,
+                        relName: r.name,
+                        sourceName: r.sourceName,
+                        sourceType: r.sourceType,
+                        targetName: r.targetName,
+                        targetType: r.targetType,
+                        message: "Duplicate: " + group.length + "x " + relationshipMatrix.getRelationshipLabel(r.type) + " between same elements",
+                        remediation: "Remove duplicates. Keep the one with documentation or more view references."
+                    });
+                }
+            }
+        }
+
+        // 2c: Bidirectional serving/flow
+        var directedPairs = {};
+        for (var i = 0; i < allRels.length; i++) {
+            var r = allRels[i];
+            if (r.type !== "serving-relationship" && r.type !== "flow-relationship") continue;
+            var fwdKey = r.sourceId + "|" + r.targetId + "|" + r.type;
+            var revKey = r.targetId + "|" + r.sourceId + "|" + r.type;
+            if (directedPairs[revKey]) {
+                warningBreakdown.bidirectionalDirected++;
+                warnings.push({
+                    severity: "Warning",
+                    relId: r.id,
+                    relType: r.type,
+                    relName: r.name,
+                    sourceName: r.sourceName,
+                    sourceType: r.sourceType,
+                    targetName: r.targetName,
+                    targetType: r.targetType,
+                    message: "Bidirectional " + relationshipMatrix.getRelationshipLabel(r.type),
+                    remediation: "Review direction. Serving = provider to consumer. Flow = data/material direction."
+                });
+            }
+            directedPairs[fwdKey] = r;
+        }
+
+        // 2d: Self-relationships
+        for (var i = 0; i < allRels.length; i++) {
+            var r = allRels[i];
+            if (r.sourceId === r.targetId) {
+                warningBreakdown.selfRelationships++;
+                warnings.push({
+                    severity: "Warning",
+                    relId: r.id,
+                    relType: r.type,
+                    relName: r.name,
+                    sourceName: r.sourceName,
+                    sourceType: r.sourceType,
+                    targetName: r.targetName,
+                    targetType: r.targetType,
+                    message: "Self-relationship on " + r.sourceName,
+                    remediation: "Self-relationships are rarely intentional. Consider removing."
+                });
+            }
+        }
+
+        var totalIssues = errors.length + warnings.length;
+        log.info("Errors: " + errors.length + ", Warnings: " + warnings.length);
+
+        // Handle empty results
+        if (relCount === 0) {
+            log.success("No relationships found in model.");
+            MessageDialog.openInformation(shell, "Relationship Compliance Checker",
+                "No relationships found in the current model.");
+            return;
+        }
+
+        if (totalIssues === 0) {
+            log.success("All " + relCount + " relationships are compliant.");
+            MessageDialog.openInformation(shell, "Relationship Compliance Checker",
+                "All " + relCount + " relationships are compliant with the ArchiMate 3.1 specification.\n\nNo issues found.");
+            return;
+        }
+
+        // =================================================================
+        // Phase 3: Dialog
+        // =================================================================
+
+        var EXPORT_CSV_ID = 42;
+        var errorColor = null;
+        var selectedRemediation = null;
+
+        // Table column defs: [header, width]
+        var ISSUE_COLUMNS = [
+            ["Source",       130],
+            ["Source Type",  110],
+            ["Rel Type",     120],
+            ["Target",       130],
+            ["Target Type",  110],
+            ["Message",      220],
+            ["Rel ID",       120]
+        ];
+
+        function populateIssueTable(table, issues, sortCol, ascending) {
+            table.removeAll();
+            var sorted = issues.slice().sort(function (a, b) {
+                var keys = ["sourceName", "sourceType", "relType", "targetName", "targetType", "message", "relId"];
+                var key = keys[sortCol];
+                var va = a[key] || "";
+                var vb = b[key] || "";
+                var cmp = String(va).localeCompare(String(vb));
+                return ascending ? cmp : -cmp;
+            });
+            for (var i = 0; i < sorted.length; i++) {
+                var issue = sorted[i];
+                var item = new TableItem(table, SWT.NONE);
+                item.setText(javaStringArray([
+                    issue.sourceName,
+                    issue.sourceType,
+                    relationshipMatrix.getRelationshipLabel(issue.relType),
+                    issue.targetName,
+                    issue.targetType,
+                    issue.message,
+                    issue.relId
+                ]));
+                item.setData("id", issue.relId);
+                item.setData("remediation", issue.remediation);
+            }
+        }
+
+        function buildIssueTable(parent, issues, remediationLabel) {
+            var sortCol = { value: 0 };
+            var ascending = { value: true };
+
+            var table = new Table(parent, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+            table.setHeaderVisible(true);
+            table.setLinesVisible(true);
+            GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, 350).applyTo(table);
+
+            for (var c = 0; c < ISSUE_COLUMNS.length; c++) {
+                var col = new TableColumn(table, SWT.NONE);
+                col.setText(ISSUE_COLUMNS[c][0]);
+                col.setWidth(ISSUE_COLUMNS[c][1]);
+                col.setData("colIndex", c);
+                col.addSelectionListener({
+                    widgetSelected: function (e) {
+                        var clicked = e.widget.getData("colIndex");
+                        if (clicked === sortCol.value) {
+                            ascending.value = !ascending.value;
+                        } else {
+                            sortCol.value = clicked;
+                            ascending.value = true;
+                        }
+                        table.setSortColumn(e.widget);
+                        table.setSortDirection(ascending.value ? SWT.UP : SWT.DOWN);
+                        populateIssueTable(table, issues, sortCol.value, ascending.value);
+                    },
+                    widgetDefaultSelected: function () {}
+                });
+            }
+
+            table.setSortColumn(table.getColumn(0));
+            table.setSortDirection(SWT.UP);
+            populateIssueTable(table, issues, 0, true);
+
+            // Double-click to reveal in tree
+            table.addListener(SWT.MouseDoubleClick, function () {
+                var sel = table.getSelection();
+                if (sel.length === 0) return;
+                var id = sel[0].getData("id");
+                if (id) revealInTree(id);
+            });
+
+            // Single-click to show remediation
+            table.addListener(SWT.Selection, function () {
+                var sel = table.getSelection();
+                if (sel.length === 0 || !remediationLabel) return;
+                var rem = sel[0].getData("remediation");
+                remediationLabel.setText(rem ? "Remediation: " + rem : "");
+                remediationLabel.getParent().layout(true);
+            });
+
+            return table;
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Relationship Compliance Checker");
+                    newShell.setMinimumSize(800, 500);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                getShellStyle: function () {
+                    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+                    var display = Display.getCurrent();
+                    errorColor = new Color(display, 220, 50, 50);
+
+                    var validCount = relCount - skippedCount - errors.length;
+                    var validPct = relCount > 0 ? ((validCount / (relCount - skippedCount)) * 100).toFixed(1) : "100.0";
+
+                    myDialog.dialog.setTitle("Compliance Report");
+                    myDialog.dialog.setMessage(
+                        relCount + " relationships scanned \u2014 " +
+                        errors.length + " error" + (errors.length !== 1 ? "s" : "") + ", " +
+                        warnings.length + " warning" + (warnings.length !== 1 ? "s" : "")
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // Tab folder
+                    var tabFolder = new TabFolder(container, SWT.NONE);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(tabFolder);
+
+                    // --- Summary tab ---
+                    var summaryTab = new TabItem(tabFolder, SWT.NONE);
+                    summaryTab.setText("Summary (" + totalIssues + ")");
+                    var summaryComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(16, 12).spacing(8, 6).applyTo(summaryComp);
+
+                    var lines = [
+                        "Total relationships:    " + relCount,
+                        "Checked:                " + (relCount - skippedCount) + (skippedCount > 0 ? "  (" + skippedCount + " skipped: junctions/nested)" : ""),
+                        "Valid:                  " + validCount + "  (" + validPct + "%)",
+                        "",
+                        "Errors:                 " + errors.length + "  (specification violations)",
+                        "Warnings:               " + warnings.length + "  (weak modeling patterns)",
+                        ""
+                    ];
+                    if (warnings.length > 0) {
+                        lines.push("Warning breakdown:");
+                        if (warningBreakdown.associationOveruse > 0)
+                            lines.push("  Association overuse:       " + warningBreakdown.associationOveruse);
+                        if (warningBreakdown.duplicateRelationships > 0)
+                            lines.push("  Duplicate relationships:   " + warningBreakdown.duplicateRelationships);
+                        if (warningBreakdown.bidirectionalDirected > 0)
+                            lines.push("  Bidirectional directed:    " + warningBreakdown.bidirectionalDirected);
+                        if (warningBreakdown.selfRelationships > 0)
+                            lines.push("  Self-relationships:        " + warningBreakdown.selfRelationships);
+                    }
+
+                    for (var li = 0; li < lines.length; li++) {
+                        var lbl = new Label(summaryComp, SWT.NONE);
+                        lbl.setText(lines[li]);
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(lbl);
+                    }
+                    summaryTab.setControl(summaryComp);
+
+                    // --- Errors tab ---
+                    var errorsTab = new TabItem(tabFolder, SWT.NONE);
+                    errorsTab.setText("Errors (" + errors.length + ")");
+                    var errorsComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(errorsComp);
+
+                    if (errors.length > 0) {
+                        var errRemLabel = new Label(errorsComp, SWT.WRAP);
+                        errRemLabel.setText("Select a row to see remediation advice.");
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(errRemLabel);
+                        buildIssueTable(errorsComp, errors, errRemLabel);
+                        var errFooter = new Label(errorsComp, SWT.NONE);
+                        errFooter.setText(errors.length + " error" + (errors.length !== 1 ? "s" : "") + "  |  Double-click to reveal  |  Click headers to sort");
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(errFooter);
+                    } else {
+                        var noErr = new Label(errorsComp, SWT.NONE);
+                        noErr.setText("No specification violations found.");
+                        GridDataFactory.fillDefaults().grab(true, true).applyTo(noErr);
+                    }
+                    errorsTab.setControl(errorsComp);
+
+                    // --- Warnings tab ---
+                    var warningsTab = new TabItem(tabFolder, SWT.NONE);
+                    warningsTab.setText("Warnings (" + warnings.length + ")");
+                    var warningsComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(warningsComp);
+
+                    if (warnings.length > 0) {
+                        var warnRemLabel = new Label(warningsComp, SWT.WRAP);
+                        warnRemLabel.setText("Select a row to see remediation advice.");
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(warnRemLabel);
+                        buildIssueTable(warningsComp, warnings, warnRemLabel);
+                        var warnFooter = new Label(warningsComp, SWT.NONE);
+                        warnFooter.setText(warnings.length + " warning" + (warnings.length !== 1 ? "s" : "") + "  |  Double-click to reveal  |  Click headers to sort");
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(warnFooter);
+                    } else {
+                        var noWarn = new Label(warningsComp, SWT.NONE);
+                        noWarn.setText("No weak modeling patterns detected.");
+                        GridDataFactory.fillDefaults().grab(true, true).applyTo(noWarn);
+                    }
+                    warningsTab.setControl(warningsComp);
+
+                    // Select first tab with issues
+                    if (errors.length > 0) {
+                        tabFolder.setSelection(1);
+                    } else if (warnings.length > 0) {
+                        tabFolder.setSelection(2);
+                    }
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, EXPORT_CSV_ID, "Export CSV", false);
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                buttonPressed: function (buttonId) {
+                    if (buttonId === EXPORT_CSV_ID) {
+                        exportCsv();
+                        return;
+                    }
+                    Java.super(myDialog.dialog).okPressed();
+                },
+
+                close: function () {
+                    if (errorColor && !errorColor.isDisposed()) {
+                        errorColor.dispose();
+                    }
+                    return Java.super(myDialog.dialog).close();
+                },
+
+                getInitialSize: function () {
+                    return new Point(950, 620);
+                }
+            })
+        };
+
+        // =================================================================
+        // CSV Export
+        // =================================================================
+
+        function exportCsv() {
+            var outputDir = window.promptOpenDirectory({
+                title: "Select output directory for compliance report"
+            });
+            if (!outputDir) return;
+
+            var filePath = outputDir + File.separator + "relationship_compliance_report.csv";
+            var allIssues = errors.concat(warnings);
+            var headers = ["Severity", "Source", "Source Type", "Relationship Type", "Target", "Target Type", "Relationship ID", "Message", "Remediation"];
+
+            var writer = new BufferedWriter(new FileWriter(filePath));
+            try {
+                writer.write(headers.map(csvEscape).join(","));
+                writer.newLine();
+                for (var i = 0; i < allIssues.length; i++) {
+                    var issue = allIssues[i];
+                    var row = [
+                        issue.severity,
+                        issue.sourceName,
+                        issue.sourceType,
+                        issue.relType,
+                        issue.targetName,
+                        issue.targetType,
+                        issue.relId,
+                        issue.message,
+                        issue.remediation
+                    ];
+                    writer.write(row.map(csvEscape).join(","));
+                    writer.newLine();
+                }
+            } finally {
+                writer.close();
+            }
+
+            log.success("Exported " + allIssues.length + " issues to " + filePath);
+            MessageDialog.openInformation(shell, "Export Complete",
+                "Exported " + allIssues.length + " issues to:\n" + filePath);
+        }
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Compliance check complete: " + errors.length + " errors, " + warnings.length + " warnings.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

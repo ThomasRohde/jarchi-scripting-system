@@ -1,0 +1,23 @@
+{
+  "id": "analysis.relationship_compliance_checker",
+  "title": "Relationship Compliance Checker",
+  "category": ["Analysis"],
+  "order": 10,
+  "script": {
+    "path": "Relationship Compliance Checker.ajs"
+  },
+  "description": "Validates all relationships against the ArchiMate 3.1 specification matrix. Reports invalid relationships and weak modeling patterns with navigation and CSV export.",
+  "tags": ["analysis", "validation", "relationships", "compliance", "quality", "archimate"],
+  "help": {
+    "markdown_path": "../help/relationship-compliance-checker.md"
+  },
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

@@ -207,6 +207,15 @@ var myDialog = {
             Java.super(myDialog.dialog).configureShell(s);
             s.setText("Title");
         },
+        isResizable: function() {
+            return true;
+        },
+        getShellStyle: function() {
+            // Must override getShellStyle — isResizable() alone does not work
+            // in GraalJS Java.extend because the override may not dispatch
+            // correctly during Java-side shell creation.
+            return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+        },
         createDialogArea: function(parent) {
             var area = Java.super(myDialog.dialog).createDialogArea(parent);
             // build UI

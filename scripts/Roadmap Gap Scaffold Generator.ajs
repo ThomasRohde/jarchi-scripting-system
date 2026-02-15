@@ -31,6 +31,7 @@ load(__DIR__ + "lib/requireModel.js");
     var MessageDialog = swtImports.MessageDialog;
     var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
     var Point = swtImports.Point;
+    var ScrolledComposite = swtImports.ScrolledComposite;
 
     var Spinner = Java.type("org.eclipse.swt.widgets.Spinner");
 
@@ -386,7 +387,7 @@ load(__DIR__ + "lib/requireModel.js");
                 configureShell: function (newShell) {
                     Java.super(myDialog.dialog).configureShell(newShell);
                     newShell.setText("Roadmap / Gap Scaffold Generator");
-                    newShell.setMinimumSize(520, 520);
+                    newShell.setMinimumSize(560, 620);
                 },
 
                 isResizable: function () {
@@ -401,9 +402,14 @@ load(__DIR__ + "lib/requireModel.js");
                         "Configure and generate a migration planning scaffold with auto-linked relationships."
                     );
 
-                    var container = new Composite(area, SWT.NONE);
+                    var scrolled = new ScrolledComposite(area, SWT.V_SCROLL);
+                    scrolled.setExpandHorizontal(true);
+                    scrolled.setExpandVertical(true);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(scrolled);
+
+                    var container = new Composite(scrolled, SWT.NONE);
                     GridLayoutFactory.fillDefaults().numColumns(2).margins(12, 8).applyTo(container);
-                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+                    scrolled.setContent(container);
 
                     // --- Section 1: Template & Naming ---
 
@@ -503,6 +509,7 @@ load(__DIR__ + "lib/requireModel.js");
                     w.previewLabel = new Label(container, SWT.NONE);
                     GridDataFactory.fillDefaults().grab(true, false).span(2, 1).indent(0, 8).applyTo(w.previewLabel);
                     updatePreview();
+                    scrolled.setMinSize(container.computeSize(SWT.DEFAULT, SWT.DEFAULT));
 
                     return area;
                 },
@@ -533,7 +540,7 @@ load(__DIR__ + "lib/requireModel.js");
                 },
 
                 getInitialSize: function () {
-                    return new Point(560, 560);
+                    return new Point(620, 750);
                 }
             })
         };
