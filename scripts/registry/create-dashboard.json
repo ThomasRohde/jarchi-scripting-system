@@ -1,0 +1,28 @@
+{
+  "id": "visualization.create_dashboard",
+  "title": "Create Dashboard",
+  "category": ["Visualization"],
+  "order": 20,
+
+  "script": {
+    "path": "Create Dashboard.ajs"
+  },
+
+  "description": "Creates a new dashboard view with all 12 chart templates in a symmetric 4x3 grid. Initializes missing data properties with random values and renders all charts automatically.",
+  "tags": ["visualization", "dashboard", "chart", "overview", "template", "analytics"],
+
+  "help": {
+    "markdown_path": "../help/create-dashboard.md"
+  },
+
+  "run": {
+    "danger_level": "high",
+    "confirm_message": "This will create a new view and may initialize random property values on model elements that lack chart data properties."
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

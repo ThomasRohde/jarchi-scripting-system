@@ -1,0 +1,401 @@
+/**
+ * @name Create Dashboard
+ * @description Creates a new dashboard view with all available chart templates
+ * arranged in a symmetric 4x3 grid layout. Initializes missing data properties
+ * with random values on matching elements and renders all charts.
+ * @version 1.0.0
+ * @lastModifiedDate 2026-02-15
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/chartDefinitions.js");
+load(__DIR__ + "lib/chartDataCollectors.js");
+load(__DIR__ + "vendor/chartjs/chart-sync.js");
+
+(function () {
+    "use strict";
+
+    var Files = Java.type("java.nio.file.Files");
+    var JPath = Java.type("java.nio.file.Paths");
+    var System = Java.type("java.lang.System");
+    var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+    var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+    var IArchiveManager = Java.type("com.archimatetool.editor.model.IArchiveManager");
+
+    // =========================================================================
+    // Layout constants
+    // =========================================================================
+
+    var COLS = 4;
+    var CHART_WIDTH = 500;
+    var CHART_HEIGHT = 350;
+    var GAP = 30;
+    var MARGIN_LEFT = 50;
+    var MARGIN_TOP = 110;
+    var TITLE_HEIGHT = 60;
+    var TITLE_Y = 25;
+
+    // =========================================================================
+    // Chart ordering — logical grouping for the dashboard
+    // Row 1: Overview (no custom properties needed)
+    // Row 2: Application-focused analysis
+    // Row 3: Technology & Capability analysis
+    // =========================================================================
+
+    var CHART_ORDER = [
+        "element-distribution",
+        "architecture-layer-balance",
+        "relationship-complexity",
+        "view-coverage",
+        "technical-debt-distribution",
+        "application-portfolio",
+        "risk-assessment-matrix",
+        "lifecycle-by-category",
+        "technology-lifecycle",
+        "technology-stack-composition",
+        "capability-maturity",
+        "maturity-trend"
+    ];
+
+    // =========================================================================
+    // Random value generators for each property
+    // =========================================================================
+
+    var RANDOM_GENERATORS = {
+        "technical-debt": function () {
+            var vals = ["low", "medium", "high", "critical"];
+            return vals[Math.floor(Math.random() * vals.length)];
+        },
+        "lifecycle-status": function () {
+            var vals = ["emerging", "current", "sunset", "retired"];
+            return vals[Math.floor(Math.random() * vals.length)];
+        },
+        "business-value": function () {
+            return String(Math.floor(Math.random() * 5) + 1);
+        },
+        "technical-quality": function () {
+            return String(Math.floor(Math.random() * 5) + 1);
+        },
+        "annual-cost": function () {
+            return String(Math.floor(Math.random() * 450) + 50);
+        },
+        "maturity-current": function () {
+            return String(Math.floor(Math.random() * 4) + 1);
+        },
+        "maturity-target": function () {
+            return String(Math.floor(Math.random() * 3) + 3);
+        },
+        "department": function () {
+            var vals = ["IT", "Finance", "HR", "Operations", "Marketing"];
+            return vals[Math.floor(Math.random() * vals.length)];
+        },
+        "risk-impact": function () {
+            return String(Math.floor(Math.random() * 5) + 1);
+        },
+        "risk-likelihood": function () {
+            return String(Math.floor(Math.random() * 5) + 1);
+        },
+        "technology-category": function () {
+            var vals = ["Infrastructure", "Middleware", "Database", "Security", "DevOps"];
+            return vals[Math.floor(Math.random() * vals.length)];
+        }
+    };
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    function getRawModel() {
+        var models = IEditorModelManager.INSTANCE.getModels();
+        if (models.size() === 1) return models.get(0);
+        var modelName = model.name;
+        for (var i = 0; i < models.size(); i++) {
+            if (models.get(i).getName() === modelName) return models.get(i);
+        }
+        return models.get(0);
+    }
+
+    function setNoteImage(noteProxy, pngFilePath) {
+        var rawModel = getRawModel();
+        var rawNote = ArchimateModelUtils.getObjectByID(rawModel, noteProxy.id);
+        if (!rawNote) throw new Error("Could not find raw EMF object for note: " + noteProxy.id);
+
+        var archiveManager = rawModel.getAdapter(IArchiveManager.class);
+        if (!archiveManager) throw new Error("Could not get IArchiveManager for model");
+
+        var pngBytes = Files.readAllBytes(JPath.get(pngFilePath));
+        var imagePath = archiveManager.addByteContentEntry(pngFilePath, pngBytes);
+
+        rawNote.setImagePath(imagePath);
+        rawNote.setImagePosition(9); // IIconic.IMAGE_POSITION_FILL
+    }
+
+    function getTempPath(noteId) {
+        var tmpDir = System.getProperty("java.io.tmpdir");
+        return JPath.get(tmpDir, "jarchi-chart-" + noteId + ".png").toString();
+    }
+
+    // BORDER.NONE constant for notes
+    var BORDER_NONE = 2;
+
+    // =========================================================================
+    // Sample elements for types that may not exist in the model
+    // =========================================================================
+
+    var SAMPLE_ELEMENT_NAMES = {
+        "capability": [
+            "Data Management", "Customer Engagement", "Financial Planning",
+            "Risk Management", "Supply Chain Management", "Human Capital Management",
+            "Digital Innovation", "Regulatory Compliance"
+        ]
+    };
+
+    /**
+     * Ensure the model has named elements of each required type.
+     * Creates sample elements by name (skipping any that already exist)
+     * so that charts with skipGenericNames won't end up empty.
+     */
+    function ensureSampleElements(templates) {
+        var typesChecked = {};
+        var totalCreated = 0;
+
+        for (var t = 0; t < templates.length; t++) {
+            var tmpl = templates[t];
+            if (!tmpl.propertiesCreated || tmpl.propertiesCreated.length === 0) continue;
+
+            for (var p = 0; p < tmpl.propertiesCreated.length; p++) {
+                var propDef = tmpl.propertiesCreated[p];
+                for (var q = 0; q < propDef.targetTypes.length; q++) {
+                    var elType = propDef.targetTypes[q];
+                    if (typesChecked[elType]) continue;
+                    typesChecked[elType] = true;
+
+                    if (!SAMPLE_ELEMENT_NAMES[elType]) continue;
+
+                    // Collect existing element names to avoid duplicates
+                    var existingNames = {};
+                    $(elType).each(function (el) {
+                        existingNames[(el.name || "").trim()] = true;
+                    });
+
+                    var names = SAMPLE_ELEMENT_NAMES[elType];
+                    var created = 0;
+                    for (var n = 0; n < names.length; n++) {
+                        if (!existingNames[names[n]]) {
+                            model.createElement(elType, names[n]);
+                            created++;
+                        }
+                    }
+
+                    if (created > 0) {
+                        totalCreated += created;
+                        log.detail("  Created " + created + " sample " + elType + " element(s)");
+                    }
+                }
+            }
+        }
+
+        return totalCreated;
+    }
+
+    /**
+     * Initialize properties with random values on matching elements.
+     * Only sets values where the property doesn't already exist.
+     */
+    function initializeRandomProperties(templates) {
+        var totalInitialized = 0;
+        var processedProps = {};
+
+        for (var t = 0; t < templates.length; t++) {
+            var tmpl = templates[t];
+            if (!tmpl.propertiesCreated || tmpl.propertiesCreated.length === 0) continue;
+
+            for (var p = 0; p < tmpl.propertiesCreated.length; p++) {
+                var propDef = tmpl.propertiesCreated[p];
+                var propKey = propDef.name + ":" + propDef.targetTypes.join(",");
+
+                if (processedProps[propKey]) continue;
+                processedProps[propKey] = true;
+
+                var generator = RANDOM_GENERATORS[propDef.name];
+                if (!generator) continue;
+
+                // Build target collection ($() doesn't support comma-separated types)
+                var targetCollection;
+                if (propDef.targetTypes.length === 1) {
+                    targetCollection = $(propDef.targetTypes[0]);
+                } else {
+                    targetCollection = $(propDef.targetTypes[0]);
+                    for (var q = 1; q < propDef.targetTypes.length; q++) {
+                        targetCollection = targetCollection.add($(propDef.targetTypes[q]));
+                    }
+                }
+
+                var initialized = 0;
+                targetCollection.each(function (el) {
+                    if (el.prop(propDef.name) === null) {
+                        el.prop(propDef.name, generator());
+                        initialized++;
+                    }
+                });
+
+                totalInitialized += initialized;
+                if (initialized > 0) {
+                    log.detail("  " + propDef.name + ": set on " + initialized + " element(s)");
+                }
+            }
+        }
+
+        return totalInitialized;
+    }
+
+    // =========================================================================
+    // Main
+    // =========================================================================
+
+    try {
+        requireModel();
+        log.header("Create Dashboard");
+
+        var dashboardName = window.prompt("Dashboard view name:", "EA Dashboard");
+        if (!dashboardName) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // Collect templates in display order
+        var allTemplates = chartDefinitions.getAllTemplates();
+        var templateMap = {};
+        for (var t = 0; t < allTemplates.length; t++) {
+            templateMap[allTemplates[t].id] = allTemplates[t];
+        }
+
+        var orderedTemplates = [];
+        for (var i = 0; i < CHART_ORDER.length; i++) {
+            var tmpl = templateMap[CHART_ORDER[i]];
+            if (tmpl) orderedTemplates.push(tmpl);
+        }
+
+        if (orderedTemplates.length === 0) {
+            log.error("No chart templates found.");
+            return;
+        }
+
+        log.info("Creating dashboard with " + orderedTemplates.length + " charts...");
+
+        // --- Create sample elements for types that don't exist ---
+        var samplesCreated = ensureSampleElements(orderedTemplates);
+        if (samplesCreated > 0) {
+            log.info("Created " + samplesCreated + " sample element(s) for missing types.");
+        }
+
+        // --- Initialize missing properties with random values ---
+        log.info("Initializing missing data properties with random values...");
+        var totalInit = initializeRandomProperties(orderedTemplates);
+        if (totalInit > 0) {
+            log.info("Initialized " + totalInit + " property value(s) across model elements.");
+        } else {
+            log.detail("  All properties already set (or no matching elements).");
+        }
+
+        // --- Create the dashboard view ---
+        var dashView = model.createArchimateView(dashboardName);
+        log.info("Created view: " + dashboardName);
+
+        // --- Create title note spanning the full grid width ---
+        var totalGridWidth = COLS * CHART_WIDTH + (COLS - 1) * GAP;
+        var titleNote = dashView.createObject("note", MARGIN_LEFT, TITLE_Y, totalGridWidth, TITLE_HEIGHT);
+        titleNote.setText(dashboardName);
+        titleNote.borderType = BORDER_NONE;
+
+        // --- Place chart notes in a symmetric grid ---
+        var chartNotes = [];
+
+        for (var idx = 0; idx < orderedTemplates.length; idx++) {
+            var template = orderedTemplates[idx];
+            var col = idx % COLS;
+            var row = Math.floor(idx / COLS);
+
+            var x = MARGIN_LEFT + col * (CHART_WIDTH + GAP);
+            var y = MARGIN_TOP + row * (CHART_HEIGHT + GAP);
+
+            var definition = chartDefinitions.createDefinition(template.id, {
+                title: template.chartConfig.title,
+                width: CHART_WIDTH,
+                height: CHART_HEIGHT,
+                scope: "model"
+            });
+
+            var noteObj = dashView.createObject("note", x, y, CHART_WIDTH, CHART_HEIGHT);
+            noteObj.setText(definition.title);
+            noteObj.prop("chart-definition", JSON.stringify(definition));
+            noteObj.borderType = BORDER_NONE;
+
+            chartNotes.push({ note: noteObj, definition: definition });
+            log.detail("  Placed: " + definition.title);
+        }
+
+        // --- Render all charts ---
+        log.info("Rendering " + chartNotes.length + " chart(s)...");
+
+        var rendered = 0;
+        var failed = 0;
+
+        for (var c = 0; c < chartNotes.length; c++) {
+            var entry = chartNotes[c];
+            var noteObj = entry.note;
+            var definition = entry.definition;
+
+            try {
+                var data = chartDataCollectors.collectData(definition, dashView);
+
+                var chartConfig = {
+                    type: definition.type,
+                    data: data,
+                    options: definition.chartOptions || {},
+                    backgroundColor: definition.backgroundColor || "#FFFFFF"
+                };
+
+                var outputPath = getTempPath(noteObj.id);
+                chartSync.renderChart(chartConfig, definition.width, definition.height, outputPath);
+
+                if (!Files.exists(JPath.get(outputPath))) {
+                    throw new Error("PNG not created at: " + outputPath);
+                }
+
+                setNoteImage(noteObj, outputPath);
+                noteObj.setText("");
+
+                rendered++;
+                log.detail("  Rendered: " + definition.title);
+            } catch (err) {
+                failed++;
+                log.error("  Failed: " + definition.title + " — " + err.toString());
+                if (err.stack) log.detail("    " + err.stack);
+            }
+        }
+
+        // --- Open the dashboard view ---
+        dashView.openInUI();
+
+        // --- Summary ---
+        var summary = "Dashboard '" + dashboardName + "' created with " +
+            rendered + " chart(s) rendered";
+        if (failed > 0) {
+            summary += " (" + failed + " failed)";
+            log.warn(summary);
+        } else {
+            log.success(summary);
+        }
+
+        log.success("Create Dashboard complete.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

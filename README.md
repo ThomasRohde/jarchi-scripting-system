@@ -107,7 +107,7 @@ Claude Code will use the project's skills and context files to generate code tha
 | **Cleanup** | Delete Unused Elements |
 | **Utilities** | Model API Server |
 
-All scripts are accessible through the **Menu** launcher (`Menu.ajs`), which provides category browsing, fuzzy search, and inline help.
+All scripts are accessible through the **Menu** launcher (`Menu.ajs`), which provides category browsing, fuzzy search, and inline help. See **[SCRIPTS.md](SCRIPTS.md)** for detailed descriptions of every script.
 
 ## Architecture
 

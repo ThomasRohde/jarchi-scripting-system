@@ -116,6 +116,10 @@ Read these before writing JArchi scripts:
 - `context/graalJS-compatibility.md` — GraalJS runtime details and limitations
 - `context/java-interop.md` — Java interoperability patterns
 
+## Script Catalog
+
+`SCRIPTS.md` contains descriptions of all available scripts. **Update `SCRIPTS.md` whenever a script is created, renamed, removed, or its description changes.**
+
 ## Critical Constraints
 
 - **No Web Workers, no async I/O, no setTimeout** (unless shimmed) in GraalJS
