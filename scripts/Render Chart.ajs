@@ -1,0 +1,209 @@
+/**
+ * @name Render Chart
+ * @description Renders chart images on note elements that have a chart-definition
+ * property. Collects data from the model, renders via Chart.js to PNG, and sets
+ * the image on the note. Processes selected notes or all chart notes on the view.
+ * @version 1.0.0
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+load(__DIR__ + "vendor/chartjs/chart-sync.js");
+load(__DIR__ + "lib/chartDataCollectors.js");
+
+(function () {
+    "use strict";
+
+    var Files = Java.type("java.nio.file.Files");
+    var JPath = Java.type("java.nio.file.Paths");
+    var System = Java.type("java.lang.System");
+    var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+    var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+    var IArchiveManager = Java.type("com.archimatetool.editor.model.IArchiveManager");
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    /**
+     * Find all note objects on a view that have a chart-definition property.
+     */
+    function findChartNotes(view) {
+        var notes = [];
+        $(view).find("diagram-model-note").each(function (noteObj) {
+            var defStr = noteObj.prop("chart-definition");
+            if (defStr) {
+                notes.push(noteObj);
+            }
+        });
+        return notes;
+    }
+
+    /**
+     * Get a temporary file path for chart PNG output.
+     */
+    function getTempPath(noteId) {
+        var tmpDir = System.getProperty("java.io.tmpdir");
+        return JPath.get(tmpDir, "jarchi-chart-" + noteId + ".png").toString();
+    }
+
+    /**
+     * Get the raw EMF model object for the current model.
+     */
+    function getRawModel() {
+        var models = IEditorModelManager.INSTANCE.getModels();
+        if (models.size() === 1) return models.get(0);
+        var modelName = model.name;
+        for (var i = 0; i < models.size(); i++) {
+            if (models.get(i).getName() === modelName) return models.get(i);
+        }
+        return models.get(0);
+    }
+
+    /**
+     * Set an image on a note using the raw EMF API.
+     * jArchi's note proxy doesn't expose .image, but the underlying
+     * IDiagramModelNote implements IIconic which has setImagePath().
+     *
+     * @param {Object} noteProxy - jArchi note proxy
+     * @param {string} pngFilePath - Path to the PNG file on disk
+     */
+    function setNoteImage(noteProxy, pngFilePath) {
+        var rawModel = getRawModel();
+        var rawNote = ArchimateModelUtils.getObjectByID(rawModel, noteProxy.id);
+        if (!rawNote) throw new Error("Could not find raw EMF object for note: " + noteProxy.id);
+
+        // Get the archive manager that stores images inside the .archimate file
+        var archiveManager = rawModel.getAdapter(IArchiveManager.class);
+        if (!archiveManager) throw new Error("Could not get IArchiveManager for model");
+
+        // Read PNG bytes and add to the model's image archive
+        var pngBytes = Files.readAllBytes(JPath.get(pngFilePath));
+        var imagePath = archiveManager.addByteContentEntry(pngFilePath, pngBytes);
+
+        // Set the image path and fill position on the raw note
+        rawNote.setImagePath(imagePath);
+        rawNote.setImagePosition(9); // IIconic.IMAGE_POSITION_FILL
+    }
+
+    // =========================================================================
+    // Main
+    // =========================================================================
+
+    try {
+        requireModel();
+        log.header("Render Chart");
+
+        var view = resolveSelection.activeView();
+        if (!view) {
+            window.alert("No active view. Please open a view before running this script.");
+            log.error("No active view available.");
+            return;
+        }
+
+        log.info("View: " + (view.name || "(unnamed)"));
+
+        // Determine which notes to render
+        var chartNotes = [];
+
+        // Check if user selected specific notes
+        var selectedNotes = $(selection).filter("diagram-model-note");
+        if (selectedNotes.size() > 0) {
+            selectedNotes.each(function (noteObj) {
+                var defStr = noteObj.prop("chart-definition");
+                if (defStr) {
+                    chartNotes.push(noteObj);
+                }
+            });
+            if (chartNotes.length > 0) {
+                log.info("Rendering " + chartNotes.length + " selected chart note(s)...");
+            }
+        }
+
+        // If no selected chart notes, find all on view
+        if (chartNotes.length === 0) {
+            chartNotes = findChartNotes(view);
+            if (chartNotes.length === 0) {
+                window.alert("No chart notes found on this view.\n\nUse 'Create Chart Definition' to add chart notes first.");
+                log.warn("No chart notes found on view.");
+                return;
+            }
+            log.info("Found " + chartNotes.length + " chart note(s) on view.");
+        }
+
+        // Render each chart
+        var rendered = 0;
+        var failed = 0;
+
+        for (var i = 0; i < chartNotes.length; i++) {
+            var noteObj = chartNotes[i];
+            var noteLabel = noteObj.getText() || "(unnamed note)";
+
+            try {
+                // Parse chart definition
+                var defStr = noteObj.prop("chart-definition");
+                var definition = JSON.parse(defStr);
+
+                log.detail("  Rendering: " + definition.title + " (" + definition.type + ")");
+
+                // Collect data
+                var data = chartDataCollectors.collectData(definition, view);
+
+                // Build Chart.js config
+                var chartConfig = {
+                    type: definition.type,
+                    data: data,
+                    options: definition.chartOptions || {},
+                    backgroundColor: definition.backgroundColor || "#FFFFFF"
+                };
+
+                // Determine dimensions
+                var width = definition.width || 600;
+                var height = definition.height || 400;
+
+                // Render to temp PNG file
+                var outputPath = getTempPath(noteObj.id);
+                chartSync.renderChart(chartConfig, width, height, outputPath);
+
+                // Verify file was created
+                if (!Files.exists(JPath.get(outputPath))) {
+                    throw new Error("PNG file was not created at: " + outputPath);
+                }
+
+                // Set image on the note via raw EMF API
+                // (jArchi's note proxy doesn't expose .image)
+                setNoteImage(noteObj, outputPath);
+
+                // Clear note text so the image fills cleanly
+                noteObj.setText("");
+
+                rendered++;
+                log.detail("    Output: " + outputPath);
+
+            } catch (err) {
+                failed++;
+                log.error("  Failed to render '" + noteLabel + "': " + err.toString());
+                if (err.stack) log.detail("    " + err.stack);
+            }
+        }
+
+        // Summary
+        var summary = "Rendered " + rendered + " chart(s)";
+        if (failed > 0) {
+            summary += ", " + failed + " failed";
+            log.warn(summary);
+        } else {
+            log.success(summary);
+        }
+
+        log.success("Render Chart complete.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

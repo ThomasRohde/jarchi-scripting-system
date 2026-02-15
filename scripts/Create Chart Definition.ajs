@@ -1,0 +1,365 @@
+/**
+ * @name Create Chart Definition
+ * @description Creates a chart definition on a note element in the active view.
+ * Opens a dialog to select from pre-defined EA chart templates, configure
+ * dimensions and scope, and optionally initialize data properties on
+ * matching model elements.
+ * @version 1.0.0
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+load(__DIR__ + "lib/chartDefinitions.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Button = swtImports.Button;
+    var Combo = swtImports.Combo;
+    var Group = swtImports.Group;
+    var Text = swtImports.Text;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+
+    var Spinner = Java.type("org.eclipse.swt.widgets.Spinner");
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    function javaStringArray(arr) {
+        var StringArray = Java.type("java.lang.String[]");
+        var result = new StringArray(arr.length);
+        for (var i = 0; i < arr.length; i++) result[i] = arr[i];
+        return result;
+    }
+
+    // =========================================================================
+    // Main
+    // =========================================================================
+
+    try {
+        requireModel();
+        log.header("Create Chart Definition");
+
+        var view = resolveSelection.activeView();
+        if (!view) {
+            window.alert("No active view. Please open a view before running this script.");
+            log.error("No active view available.");
+            return;
+        }
+
+        // Get templates
+        var templates = chartDefinitions.getAllTemplates();
+        var templateNames = [];
+        for (var t = 0; t < templates.length; t++) {
+            templateNames.push(templates[t].name);
+        }
+
+        // =================================================================
+        // Dialog
+        // =================================================================
+
+        var dialogResult = false;
+        var config = {
+            templateIndex: 0,
+            title: templates[0].chartConfig.title,
+            width: templates[0].chartConfig.width,
+            height: templates[0].chartConfig.height,
+            scope: "model",
+            initProperties: true
+        };
+
+        var w = {};
+
+        function updateFromTemplate() {
+            if (!w.templateCombo || w.templateCombo.isDisposed()) return;
+            var idx = w.templateCombo.getSelectionIndex();
+            if (idx < 0 || idx >= templates.length) return;
+
+            var tmpl = templates[idx];
+            w.descText.setText(tmpl.description || "");
+            w.titleText.setText(tmpl.chartConfig.title);
+            w.widthSpinner.setSelection(tmpl.chartConfig.width);
+            w.heightSpinner.setSelection(tmpl.chartConfig.height);
+
+            // Show/hide property init checkbox based on whether template has properties
+            var hasProps = tmpl.propertiesCreated && tmpl.propertiesCreated.length > 0;
+            w.initCheck.setEnabled(hasProps);
+            if (!hasProps) w.initCheck.setSelection(false);
+            else w.initCheck.setSelection(true);
+
+            // Update properties preview
+            if (hasProps) {
+                var propNames = [];
+                for (var p = 0; p < tmpl.propertiesCreated.length; p++) {
+                    propNames.push(tmpl.propertiesCreated[p].name);
+                }
+                w.propsLabel.setText("Properties: " + propNames.join(", "));
+            } else {
+                w.propsLabel.setText("No custom properties needed.");
+            }
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Create Chart Definition");
+                    newShell.setMinimumSize(520, 580);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+
+                    myDialog.dialog.setTitle("Create Chart Definition");
+                    myDialog.dialog.setMessage(
+                        "Select a chart template and configure its settings."
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(12, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // --- Template selection ---
+
+                    var tmplLabel = new Label(container, SWT.NONE);
+                    tmplLabel.setText("Template:");
+                    GridDataFactory.swtDefaults().applyTo(tmplLabel);
+
+                    w.templateCombo = new Combo(container, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    w.templateCombo.setItems(javaStringArray(templateNames));
+                    w.templateCombo.select(0);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.templateCombo);
+                    w.templateCombo.addSelectionListener({
+                        widgetSelected: function () { updateFromTemplate(); },
+                        widgetDefaultSelected: function () {}
+                    });
+
+                    // --- Description ---
+
+                    var descLabel = new Label(container, SWT.NONE);
+                    descLabel.setText("Description:");
+                    GridDataFactory.swtDefaults().align(SWT.BEGINNING, SWT.BEGINNING).applyTo(descLabel);
+
+                    w.descText = new Text(container, SWT.MULTI | SWT.WRAP | SWT.READ_ONLY | SWT.BORDER);
+                    w.descText.setText(templates[0].description || "");
+                    GridDataFactory.fillDefaults().grab(true, false).hint(SWT.DEFAULT, 60).applyTo(w.descText);
+
+                    // --- Chart settings group ---
+
+                    var settingsGroup = new Group(container, SWT.NONE);
+                    settingsGroup.setText("Chart Settings");
+                    GridLayoutFactory.fillDefaults().numColumns(4).margins(8, 6).applyTo(settingsGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(settingsGroup);
+
+                    var titleLabel = new Label(settingsGroup, SWT.NONE);
+                    titleLabel.setText("Chart Title:");
+                    GridDataFactory.swtDefaults().applyTo(titleLabel);
+
+                    w.titleText = new Text(settingsGroup, SWT.BORDER);
+                    w.titleText.setText(config.title);
+                    GridDataFactory.fillDefaults().grab(true, false).span(3, 1).applyTo(w.titleText);
+
+                    var widthLabel = new Label(settingsGroup, SWT.NONE);
+                    widthLabel.setText("Width:");
+                    GridDataFactory.swtDefaults().applyTo(widthLabel);
+
+                    w.widthSpinner = new Spinner(settingsGroup, SWT.BORDER);
+                    w.widthSpinner.setMinimum(200);
+                    w.widthSpinner.setMaximum(2000);
+                    w.widthSpinner.setSelection(config.width);
+                    w.widthSpinner.setIncrement(50);
+                    GridDataFactory.fillDefaults().hint(80, SWT.DEFAULT).applyTo(w.widthSpinner);
+
+                    var heightLabel = new Label(settingsGroup, SWT.NONE);
+                    heightLabel.setText("Height:");
+                    GridDataFactory.swtDefaults().applyTo(heightLabel);
+
+                    w.heightSpinner = new Spinner(settingsGroup, SWT.BORDER);
+                    w.heightSpinner.setMinimum(200);
+                    w.heightSpinner.setMaximum(2000);
+                    w.heightSpinner.setSelection(config.height);
+                    w.heightSpinner.setIncrement(50);
+                    GridDataFactory.fillDefaults().hint(80, SWT.DEFAULT).applyTo(w.heightSpinner);
+
+                    var scopeLabel = new Label(settingsGroup, SWT.NONE);
+                    scopeLabel.setText("Scope:");
+                    GridDataFactory.swtDefaults().applyTo(scopeLabel);
+
+                    w.scopeCombo = new Combo(settingsGroup, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    w.scopeCombo.setItems(javaStringArray(["Entire Model", "Current View"]));
+                    w.scopeCombo.select(0);
+                    GridDataFactory.fillDefaults().grab(true, false).span(3, 1).applyTo(w.scopeCombo);
+
+                    // --- Properties group ---
+
+                    var propsGroup = new Group(container, SWT.NONE);
+                    propsGroup.setText("Data Properties");
+                    GridLayoutFactory.fillDefaults().numColumns(1).margins(8, 6).applyTo(propsGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(propsGroup);
+
+                    w.initCheck = new Button(propsGroup, SWT.CHECK);
+                    w.initCheck.setText("Initialize data properties on matching elements");
+                    w.initCheck.setSelection(config.initProperties);
+                    w.initCheck.setToolTipText("Sets default values on elements where the property is not yet set.");
+                    GridDataFactory.fillDefaults().applyTo(w.initCheck);
+
+                    w.propsLabel = new Label(propsGroup, SWT.WRAP);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.propsLabel);
+
+                    // Initial update
+                    updateFromTemplate();
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Create", true);
+                    myDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", false);
+                },
+
+                okPressed: function () {
+                    var title = w.titleText.getText().trim();
+                    if (!title) {
+                        myDialog.dialog.setErrorMessage("Chart title is required.");
+                        return;
+                    }
+
+                    config.templateIndex = w.templateCombo.getSelectionIndex();
+                    config.title = title;
+                    config.width = w.widthSpinner.getSelection();
+                    config.height = w.heightSpinner.getSelection();
+                    config.scope = w.scopeCombo.getSelectionIndex() === 0 ? "model" : "view";
+                    config.initProperties = w.initCheck.getSelection();
+
+                    dialogResult = true;
+                    Java.super(myDialog.dialog).okPressed();
+                },
+
+                getInitialSize: function () {
+                    return new Point(580, 620);
+                }
+            })
+        };
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        if (!dialogResult) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // =================================================================
+        // Create chart definition
+        // =================================================================
+
+        var template = templates[config.templateIndex];
+        log.info("Creating chart definition from template: " + template.name);
+
+        var definition = chartDefinitions.createDefinition(template.id, {
+            title: config.title,
+            width: config.width,
+            height: config.height,
+            scope: config.scope
+        });
+
+        // =================================================================
+        // Create note on view
+        // =================================================================
+
+        // Place note at a reasonable position
+        var noteX = 50;
+        var noteY = 50;
+
+        // Scale note size to match chart dimensions (at roughly 1:1 pixel ratio)
+        var noteWidth = Math.min(config.width, 800);
+        var noteHeight = Math.min(config.height, 600);
+
+        var noteObj = view.createObject("note", noteX, noteY, noteWidth, noteHeight);
+        noteObj.setText(config.title);
+
+        // Store chart definition as JSON property
+        noteObj.prop("chart-definition", JSON.stringify(definition));
+
+        log.detail("  Note created: " + noteObj.id);
+        log.detail("  Definition stored as 'chart-definition' property");
+
+        // =================================================================
+        // Initialize data properties (if requested)
+        // =================================================================
+
+        if (config.initProperties && template.propertiesCreated && template.propertiesCreated.length > 0) {
+            log.info("Initializing data properties...");
+
+            var totalInitialized = 0;
+            for (var p = 0; p < template.propertiesCreated.length; p++) {
+                var propDef = template.propertiesCreated[p];
+                var initialized = 0;
+
+                // jArchi $() doesn't support comma-separated type selectors
+                var targetCollection;
+                if (propDef.targetTypes.length === 1) {
+                    targetCollection = $(propDef.targetTypes[0]);
+                } else {
+                    targetCollection = $(propDef.targetTypes[0]);
+                    for (var q = 1; q < propDef.targetTypes.length; q++) {
+                        targetCollection = targetCollection.add($(propDef.targetTypes[q]));
+                    }
+                }
+                targetCollection.each(function (el) {
+                    if (el.prop(propDef.name) === null) {
+                        el.prop(propDef.name, propDef.defaultValue);
+                        initialized++;
+                    }
+                });
+
+                totalInitialized += initialized;
+                log.detail("  " + propDef.name + ": initialized on " + initialized + " elements");
+            }
+
+            log.detail("  Total properties initialized: " + totalInitialized);
+        }
+
+        // =================================================================
+        // Summary
+        // =================================================================
+
+        var summary =
+            "Chart definition created on view '" + (view.name || "unnamed") + "'\n" +
+            "Template: " + template.name + "\n" +
+            "Type: " + definition.type + "\n" +
+            "Size: " + config.width + "x" + config.height;
+
+        log.success(summary);
+
+        MessageDialog.openInformation(shell, "Chart Definition Created",
+            "Chart note created successfully.\n\n" +
+            "Template: " + template.name + "\n" +
+            "Chart type: " + definition.type + "\n\n" +
+            "Run 'Render Chart' to generate the chart image.");
+
+        log.success("Create Chart Definition complete.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

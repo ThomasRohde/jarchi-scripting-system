@@ -1,0 +1,28 @@
+{
+  "id": "visualization.create_chart_definition",
+  "title": "Create Chart Definition",
+  "category": ["Visualization"],
+  "order": 10,
+
+  "script": {
+    "path": "Create Chart Definition.ajs"
+  },
+
+  "description": "Creates a chart definition on a note element using pre-defined EA templates (Technical Debt, Technology Lifecycle, Application Portfolio, etc.) with optional data property initialization.",
+  "tags": ["visualization", "chart", "dashboard", "note", "template", "technical-debt", "lifecycle", "portfolio"],
+
+  "help": {
+    "markdown_path": "../help/create-chart-definition.md"
+  },
+
+  "run": {
+    "danger_level": "medium",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": true
+  }
+}

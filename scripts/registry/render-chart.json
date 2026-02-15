@@ -1,0 +1,28 @@
+{
+  "id": "visualization.render_chart",
+  "title": "Render Chart",
+  "category": ["Visualization"],
+  "order": 20,
+
+  "script": {
+    "path": "Render Chart.ajs"
+  },
+
+  "description": "Renders chart images on note elements that have chart definitions. Collects data from the model and produces PNG chart images displayed directly on the notes.",
+  "tags": ["visualization", "chart", "render", "image", "dashboard", "png"],
+
+  "help": {
+    "markdown_path": "../help/render-chart.md"
+  },
+
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": true
+  }
+}

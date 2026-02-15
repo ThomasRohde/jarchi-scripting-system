@@ -19,6 +19,14 @@ const VENDOR_DIR = path.join(__dirname, "..", "scripts", "vendor");
  * Each entry maps a vendor subdirectory to an array of copy operations.
  */
 const VENDOR_MODULES = {
+  chartjs: {
+    files: [
+      {
+        src: "node_modules/chart.js/dist/chart.umd.js",
+        dest: "chartjs/chart.umd.js",
+      },
+    ],
+  },
   dagre: {
     files: [
       {

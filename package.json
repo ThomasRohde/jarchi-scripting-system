@@ -30,6 +30,7 @@
   "type": "commonjs",
   "dependencies": {
     "dagre": "^0.8.5",
+    "chart.js": "^4.4.0",
     "elkjs": "0.9.3",
     "marked": "^15.0.7"
   }
