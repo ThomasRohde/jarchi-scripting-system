@@ -1,0 +1,620 @@
+/**
+ * @name Roadmap Gap Scaffold Generator
+ * @description Wizard-driven scaffold creation for migration planning: plateaus,
+ * gaps, work packages, deliverables, and implementation events with auto-linked
+ * relationships and optional roadmap view generation with color coding presets.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-15
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Button = swtImports.Button;
+    var Combo = swtImports.Combo;
+    var Group = swtImports.Group;
+    var Text = swtImports.Text;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+
+    var Spinner = Java.type("org.eclipse.swt.widgets.Spinner");
+
+    // =========================================================================
+    // Constants
+    // =========================================================================
+
+    var TEMPLATE_GAP = 0;
+    var TEMPLATE_ROADMAP = 1;
+    var TEMPLATE_LABELS = ["Gap Analysis", "Migration Roadmap"];
+
+    var COLOR_NONE = 0;
+    var COLOR_MIGRATION = 1;
+    var COLOR_LABELS = ["None", "Migration Status"];
+
+    var MIGRATION_COLORS = {
+        plateauBaseline: "#FFFFFF",
+        plateauTransition: "#FFD700",
+        plateauTarget: "#90EE90",
+        gap: "#FFA07A",
+        workPackage: "#87CEEB",
+        deliverable: "#B0C4DE",
+        implementationEvent: "#DDA0DD"
+    };
+
+    // View layout constants
+    var COL_START_X = 50;
+    var COL_WIDTH = 200;
+    var ELEM_WIDTH = 145;
+    var ELEM_HEIGHT = 55;
+    var ROW_PLATEAU_Y = 50;
+    var ROW_GAP_Y = 150;
+    var ROW_EVENT_Y = 250;
+    var ROW_WP_START_Y = 350;
+    var WP_VERTICAL_GAP = 80;
+    var DELIV_OFFSET_Y = 80;
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    function javaStringArray(arr) {
+        var StringArray = Java.type("java.lang.String[]");
+        var result = new StringArray(arr.length);
+        for (var i = 0; i < arr.length; i++) result[i] = arr[i];
+        return result;
+    }
+
+    /**
+     * Calculate how many elements and relationships a configuration will produce.
+     */
+    function calcPreview(templateIdx, transitions, wpsPerTrans, delivsPerWp, includeEvents) {
+        var elements = 0;
+        var relationships = 0;
+
+        if (templateIdx === TEMPLATE_GAP) {
+            elements = 3;        // baseline + target + 1 gap
+            relationships = 2;   // gap → association → each plateau
+        } else {
+            var totalPlateaus = 2 + transitions;   // baseline + transitions + target
+            var totalGaps = totalPlateaus - 1;     // gap between each consecutive pair
+            var totalTransitions = totalPlateaus - 1;
+            var totalWps = totalTransitions * wpsPerTrans;
+            var totalDelivs = totalWps * delivsPerWp;
+            var totalEvents = includeEvents ? totalTransitions : 0;
+
+            elements = totalPlateaus + totalGaps + totalWps + totalDelivs + totalEvents;
+
+            // Relationships:
+            // Plateau chain: triggering (totalPlateaus - 1)
+            var plateauChain = totalPlateaus - 1;
+            // Gaps: 2 associations each (to both adjacent plateaus)
+            var gapAssoc = totalGaps * 2;
+            // WPs within each transition: triggering chain (wpsPerTrans - 1 per transition)
+            var wpChain = totalTransitions * Math.max(0, wpsPerTrans - 1);
+            // WP → realization → each deliverable
+            var wpDelivRels = totalDelivs;
+            // Deliverables → realization → next plateau (one per deliverable)
+            var delivPlateauRels = totalDelivs;
+            // Events → triggering → first WP of transition
+            var eventRels = totalEvents;
+
+            relationships = plateauChain + gapAssoc + wpChain + wpDelivRels + delivPlateauRels + eventRels;
+        }
+
+        return { elements: elements, relationships: relationships };
+    }
+
+    // =========================================================================
+    // Scaffold Builder
+    // =========================================================================
+
+    function buildScaffold(config) {
+        var prefix = config.projectName;
+        var created = { elements: [], relationships: [] };
+
+        // -----------------------------------------------------------------
+        // Create plateaus
+        // -----------------------------------------------------------------
+        var plateaus = [];
+
+        var baseline = model.createElement("plateau", prefix + " Baseline");
+        baseline.documentation = "Baseline plateau representing the current state.";
+        plateaus.push(baseline);
+        created.elements.push({ el: baseline, role: "plateauBaseline" });
+
+        for (var t = 0; t < config.transitions; t++) {
+            var trans = model.createElement("plateau", prefix + " Transition " + (t + 1));
+            trans.documentation = "Transition plateau " + (t + 1) + ".";
+            plateaus.push(trans);
+            created.elements.push({ el: trans, role: "plateauTransition" });
+        }
+
+        var target = model.createElement("plateau", prefix + " Target");
+        target.documentation = "Target plateau representing the desired future state.";
+        plateaus.push(target);
+        created.elements.push({ el: target, role: "plateauTarget" });
+
+        // Plateau triggering chain
+        for (var p = 0; p < plateaus.length - 1; p++) {
+            var trigRel = model.createRelationship("triggering-relationship", "", plateaus[p], plateaus[p + 1]);
+            created.relationships.push(trigRel);
+        }
+
+        // -----------------------------------------------------------------
+        // Create gaps between consecutive plateaus
+        // -----------------------------------------------------------------
+        var gaps = [];
+        for (var g = 0; g < plateaus.length - 1; g++) {
+            var fromName = plateaus[g].name.replace(prefix + " ", "");
+            var toName = plateaus[g + 1].name.replace(prefix + " ", "");
+            var gap = model.createElement("gap", prefix + " Gap: " + fromName + " to " + toName);
+            gap.documentation = "Gap between " + fromName + " and " + toName + ".";
+            gaps.push(gap);
+            created.elements.push({ el: gap, role: "gap" });
+
+            // Gap → association → both adjacent plateaus
+            created.relationships.push(
+                model.createRelationship("association-relationship", "", gap, plateaus[g])
+            );
+            created.relationships.push(
+                model.createRelationship("association-relationship", "", gap, plateaus[g + 1])
+            );
+        }
+
+        // -----------------------------------------------------------------
+        // Create work packages, deliverables, events per transition
+        // -----------------------------------------------------------------
+        var transitionCount = plateaus.length - 1;
+        // wpGrid[transIdx][wpIdx] = { wp, deliverables[] }
+        var wpGrid = [];
+        var events = [];
+
+        for (var ti = 0; ti < transitionCount; ti++) {
+            var transWps = [];
+
+            // Implementation event (milestone before this transition)
+            if (config.includeEvents) {
+                var evt = model.createElement("implementation-event", prefix + " Milestone " + (ti + 1));
+                evt.documentation = "Milestone marking the start of transition " + (ti + 1) + ".";
+                events.push({ el: evt, transIdx: ti });
+                created.elements.push({ el: evt, role: "implementationEvent" });
+            }
+
+            for (var wi = 0; wi < config.wpsPerTransition; wi++) {
+                var wpName = prefix + " WP " + (ti + 1) + "." + (wi + 1);
+                var wp = model.createElement("work-package", wpName);
+                wp.documentation = "Work package " + (wi + 1) + " for transition " + (ti + 1) + ".";
+                created.elements.push({ el: wp, role: "workPackage" });
+
+                var wpDeliverables = [];
+                for (var di = 0; di < config.delivsPerWp; di++) {
+                    var dName = prefix + " Deliverable " + (ti + 1) + "." + (wi + 1) + "." + (di + 1);
+                    var deliv = model.createElement("deliverable", dName);
+                    deliv.documentation = "Deliverable " + (di + 1) + " of " + wpName + ".";
+                    wpDeliverables.push(deliv);
+                    created.elements.push({ el: deliv, role: "deliverable" });
+
+                    // WP → realization → Deliverable
+                    created.relationships.push(
+                        model.createRelationship("realization-relationship", "", wp, deliv)
+                    );
+
+                    // Deliverable → realization → next plateau
+                    created.relationships.push(
+                        model.createRelationship("realization-relationship", "", deliv, plateaus[ti + 1])
+                    );
+                }
+
+                transWps.push({ wp: wp, deliverables: wpDeliverables });
+            }
+
+            // WP triggering chain within this transition
+            for (var wc = 0; wc < transWps.length - 1; wc++) {
+                created.relationships.push(
+                    model.createRelationship("triggering-relationship", "", transWps[wc].wp, transWps[wc + 1].wp)
+                );
+            }
+
+            // Event → triggering → first WP
+            if (config.includeEvents && transWps.length > 0) {
+                created.relationships.push(
+                    model.createRelationship("triggering-relationship", "", events[events.length - 1].el, transWps[0].wp)
+                );
+            }
+
+            wpGrid.push(transWps);
+        }
+
+        return {
+            plateaus: plateaus,
+            gaps: gaps,
+            wpGrid: wpGrid,
+            events: events,
+            created: created
+        };
+    }
+
+    // =========================================================================
+    // View Generator
+    // =========================================================================
+
+    function generateView(scaffold, config) {
+        var viewName = config.projectName + " Roadmap";
+        var view = model.createArchimateView(viewName);
+        view.documentation = "Auto-generated roadmap scaffold for " + config.projectName + ".";
+
+        var applyColor = config.colorPreset === COLOR_MIGRATION;
+        var objMap = {};  // element id → view object
+
+        // Helper to add element to view and optionally color it
+        function addToView(element, x, y, role) {
+            var obj = view.add(element, x, y, ELEM_WIDTH, ELEM_HEIGHT);
+            objMap[element.id] = obj;
+            if (applyColor && MIGRATION_COLORS[role]) {
+                obj.fillColor = MIGRATION_COLORS[role];
+            }
+            return obj;
+        }
+
+        var transitionCount = scaffold.plateaus.length - 1;
+
+        // Row 0: Plateaus
+        for (var p = 0; p < scaffold.plateaus.length; p++) {
+            var px = COL_START_X + p * COL_WIDTH;
+            var role = p === 0 ? "plateauBaseline" : (p === scaffold.plateaus.length - 1 ? "plateauTarget" : "plateauTransition");
+            addToView(scaffold.plateaus[p], px, ROW_PLATEAU_Y, role);
+        }
+
+        // Row 1: Gaps (centered between their two plateau columns)
+        for (var g = 0; g < scaffold.gaps.length; g++) {
+            var gx = COL_START_X + g * COL_WIDTH + Math.round(COL_WIDTH / 2) - Math.round(ELEM_WIDTH / 2);
+            addToView(scaffold.gaps[g], gx, ROW_GAP_Y, "gap");
+        }
+
+        // Row 2: Events (aligned to the transition column they start)
+        for (var e = 0; e < scaffold.events.length; e++) {
+            var ex = COL_START_X + scaffold.events[e].transIdx * COL_WIDTH + Math.round(COL_WIDTH / 2) - Math.round(ELEM_WIDTH / 2);
+            addToView(scaffold.events[e].el, ex, ROW_EVENT_Y, "implementationEvent");
+        }
+
+        // Rows 3+: Work packages and deliverables per transition column
+        for (var ti = 0; ti < scaffold.wpGrid.length; ti++) {
+            var colX = COL_START_X + ti * COL_WIDTH + Math.round(COL_WIDTH / 2) - Math.round(ELEM_WIDTH / 2);
+            var transWps = scaffold.wpGrid[ti];
+
+            for (var wi = 0; wi < transWps.length; wi++) {
+                var wpY = ROW_WP_START_Y + wi * (WP_VERTICAL_GAP + (transWps[wi].deliverables.length * DELIV_OFFSET_Y));
+                addToView(transWps[wi].wp, colX, wpY, "workPackage");
+
+                for (var di = 0; di < transWps[wi].deliverables.length; di++) {
+                    var dY = wpY + DELIV_OFFSET_Y * (di + 1);
+                    addToView(transWps[wi].deliverables[di], colX, dY, "deliverable");
+                }
+            }
+        }
+
+        // Add relationship connections
+        for (var r = 0; r < scaffold.created.relationships.length; r++) {
+            var rel = scaffold.created.relationships[r];
+            var srcObj = objMap[rel.source.id];
+            var tgtObj = objMap[rel.target.id];
+            if (srcObj && tgtObj) {
+                try {
+                    view.add(rel, srcObj, tgtObj);
+                } catch (e) {
+                    // Some connections may fail if elements overlap; log and continue
+                    log.warn("  Could not add connection: " + e.message);
+                }
+            }
+        }
+
+        return view;
+    }
+
+    // =========================================================================
+    // Main
+    // =========================================================================
+
+    try {
+        requireModel();
+        log.header("Roadmap Gap Scaffold Generator");
+
+        // =================================================================
+        // Dialog
+        // =================================================================
+
+        var dialogResult = false;
+        var config = {
+            projectName: "Migration",
+            template: TEMPLATE_ROADMAP,
+            transitions: 1,
+            wpsPerTransition: 2,
+            delivsPerWp: 1,
+            includeEvents: true,
+            generateView: true,
+            colorPreset: COLOR_MIGRATION
+        };
+
+        var w = {};  // widget references
+
+        function updatePreview() {
+            if (!w.previewLabel || w.previewLabel.isDisposed()) return;
+            var tmpl = w.templateCombo.getSelectionIndex();
+            var trans = tmpl === TEMPLATE_GAP ? 0 : w.transSpinner.getSelection();
+            var wps = tmpl === TEMPLATE_GAP ? 0 : w.wpSpinner.getSelection();
+            var delivs = tmpl === TEMPLATE_GAP ? 0 : w.delivSpinner.getSelection();
+            var events = tmpl === TEMPLATE_GAP ? false : w.eventsCheck.getSelection();
+
+            var preview = calcPreview(tmpl, trans, wps, delivs, events);
+            w.previewLabel.setText(
+                "Will create: " + preview.elements + " element" + (preview.elements !== 1 ? "s" : "") +
+                ", " + preview.relationships + " relationship" + (preview.relationships !== 1 ? "s" : "")
+            );
+        }
+
+        function updateConfigEnabled() {
+            var isRoadmap = w.templateCombo.getSelectionIndex() === TEMPLATE_ROADMAP;
+            w.transSpinner.setEnabled(isRoadmap);
+            w.wpSpinner.setEnabled(isRoadmap);
+            w.delivSpinner.setEnabled(isRoadmap);
+            w.eventsCheck.setEnabled(isRoadmap);
+            updatePreview();
+        }
+
+        var changeListener = {
+            widgetSelected: function () { updatePreview(); },
+            widgetDefaultSelected: function () {}
+        };
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Roadmap / Gap Scaffold Generator");
+                    newShell.setMinimumSize(520, 520);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+
+                    myDialog.dialog.setTitle("Roadmap / Gap Scaffold Generator");
+                    myDialog.dialog.setMessage(
+                        "Configure and generate a migration planning scaffold with auto-linked relationships."
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(12, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // --- Section 1: Template & Naming ---
+
+                    var nameLabel = new Label(container, SWT.NONE);
+                    nameLabel.setText("Project name:");
+                    GridDataFactory.swtDefaults().applyTo(nameLabel);
+
+                    w.nameText = new Text(container, SWT.BORDER);
+                    w.nameText.setText(config.projectName);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.nameText);
+
+                    var tmplLabel = new Label(container, SWT.NONE);
+                    tmplLabel.setText("Template:");
+                    GridDataFactory.swtDefaults().applyTo(tmplLabel);
+
+                    w.templateCombo = new Combo(container, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    w.templateCombo.setItems(javaStringArray(TEMPLATE_LABELS));
+                    w.templateCombo.select(config.template);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.templateCombo);
+                    w.templateCombo.addSelectionListener({
+                        widgetSelected: function () { updateConfigEnabled(); },
+                        widgetDefaultSelected: function () {}
+                    });
+
+                    // --- Section 2: Configuration ---
+
+                    var configGroup = new Group(container, SWT.NONE);
+                    configGroup.setText("Configuration");
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 6).applyTo(configGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(configGroup);
+
+                    var transLabel = new Label(configGroup, SWT.NONE);
+                    transLabel.setText("Transition plateaus:");
+                    GridDataFactory.swtDefaults().applyTo(transLabel);
+
+                    w.transSpinner = new Spinner(configGroup, SWT.BORDER);
+                    w.transSpinner.setMinimum(0);
+                    w.transSpinner.setMaximum(5);
+                    w.transSpinner.setSelection(config.transitions);
+                    w.transSpinner.setIncrement(1);
+                    GridDataFactory.fillDefaults().hint(60, SWT.DEFAULT).applyTo(w.transSpinner);
+                    w.transSpinner.addSelectionListener(changeListener);
+
+                    var wpLabel = new Label(configGroup, SWT.NONE);
+                    wpLabel.setText("Work packages per transition:");
+                    GridDataFactory.swtDefaults().applyTo(wpLabel);
+
+                    w.wpSpinner = new Spinner(configGroup, SWT.BORDER);
+                    w.wpSpinner.setMinimum(1);
+                    w.wpSpinner.setMaximum(10);
+                    w.wpSpinner.setSelection(config.wpsPerTransition);
+                    w.wpSpinner.setIncrement(1);
+                    GridDataFactory.fillDefaults().hint(60, SWT.DEFAULT).applyTo(w.wpSpinner);
+                    w.wpSpinner.addSelectionListener(changeListener);
+
+                    var delivLabel = new Label(configGroup, SWT.NONE);
+                    delivLabel.setText("Deliverables per work package:");
+                    GridDataFactory.swtDefaults().applyTo(delivLabel);
+
+                    w.delivSpinner = new Spinner(configGroup, SWT.BORDER);
+                    w.delivSpinner.setMinimum(0);
+                    w.delivSpinner.setMaximum(5);
+                    w.delivSpinner.setSelection(config.delivsPerWp);
+                    w.delivSpinner.setIncrement(1);
+                    GridDataFactory.fillDefaults().hint(60, SWT.DEFAULT).applyTo(w.delivSpinner);
+                    w.delivSpinner.addSelectionListener(changeListener);
+
+                    w.eventsCheck = new Button(configGroup, SWT.CHECK);
+                    w.eventsCheck.setText("Include implementation events (milestones)");
+                    w.eventsCheck.setSelection(config.includeEvents);
+                    GridDataFactory.fillDefaults().span(2, 1).applyTo(w.eventsCheck);
+                    w.eventsCheck.addSelectionListener(changeListener);
+
+                    // --- Section 3: Output Options ---
+
+                    var outputGroup = new Group(container, SWT.NONE);
+                    outputGroup.setText("Output Options");
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 6).applyTo(outputGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(outputGroup);
+
+                    w.viewCheck = new Button(outputGroup, SWT.CHECK);
+                    w.viewCheck.setText("Generate roadmap view");
+                    w.viewCheck.setSelection(config.generateView);
+                    GridDataFactory.fillDefaults().span(2, 1).applyTo(w.viewCheck);
+
+                    var colorLabel = new Label(outputGroup, SWT.NONE);
+                    colorLabel.setText("Color coding:");
+                    GridDataFactory.swtDefaults().applyTo(colorLabel);
+
+                    w.colorCombo = new Combo(outputGroup, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    w.colorCombo.setItems(javaStringArray(COLOR_LABELS));
+                    w.colorCombo.select(config.colorPreset);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.colorCombo);
+
+                    // --- Preview ---
+
+                    w.previewLabel = new Label(container, SWT.NONE);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).indent(0, 8).applyTo(w.previewLabel);
+                    updatePreview();
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Generate", true);
+                    myDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", false);
+                },
+
+                okPressed: function () {
+                    var name = w.nameText.getText().trim();
+                    if (!name) {
+                        myDialog.dialog.setErrorMessage("Project name is required.");
+                        return;
+                    }
+
+                    config.projectName = name;
+                    config.template = w.templateCombo.getSelectionIndex();
+                    config.transitions = config.template === TEMPLATE_GAP ? 0 : w.transSpinner.getSelection();
+                    config.wpsPerTransition = config.template === TEMPLATE_GAP ? 0 : w.wpSpinner.getSelection();
+                    config.delivsPerWp = config.template === TEMPLATE_GAP ? 0 : w.delivSpinner.getSelection();
+                    config.includeEvents = config.template === TEMPLATE_GAP ? false : w.eventsCheck.getSelection();
+                    config.generateView = w.viewCheck.getSelection();
+                    config.colorPreset = w.colorCombo.getSelectionIndex();
+
+                    dialogResult = true;
+                    Java.super(myDialog.dialog).okPressed();
+                },
+
+                getInitialSize: function () {
+                    return new Point(560, 560);
+                }
+            })
+        };
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        if (!dialogResult) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // =================================================================
+        // Preview counts for confirmation
+        // =================================================================
+
+        var preview = calcPreview(
+            config.template, config.transitions, config.wpsPerTransition,
+            config.delivsPerWp, config.includeEvents
+        );
+
+        var confirmMsg = "This will create:\n\n" +
+            "  " + preview.elements + " element" + (preview.elements !== 1 ? "s" : "") + "\n" +
+            "  " + preview.relationships + " relationship" + (preview.relationships !== 1 ? "s" : "") +
+            (config.generateView ? "\n  1 roadmap view" : "") +
+            "\n\nProceed?";
+
+        if (!window.confirm(confirmMsg)) {
+            log.warn("Scaffold generation aborted.");
+            return;
+        }
+
+        // =================================================================
+        // Build scaffold
+        // =================================================================
+
+        log.info("Generating scaffold for \"" + config.projectName + "\"...");
+
+        var scaffold = buildScaffold(config);
+
+        log.detail("  Elements created: " + scaffold.created.elements.length);
+        log.detail("  Relationships created: " + scaffold.created.relationships.length);
+
+        // =================================================================
+        // Optional view generation
+        // =================================================================
+
+        if (config.generateView) {
+            log.info("Generating roadmap view...");
+            var view = generateView(scaffold, config);
+            log.detail("  View: " + view.name);
+
+            // Open the generated view
+            try {
+                view.openInUI();
+            } catch (e) {
+                log.warn("  Could not open view in editor: " + e.message);
+            }
+        }
+
+        // =================================================================
+        // Summary
+        // =================================================================
+
+        var summary =
+            "Created " + scaffold.created.elements.length + " elements and " +
+            scaffold.created.relationships.length + " relationships" +
+            (config.generateView ? " with roadmap view" : "") + ".";
+
+        log.success(summary);
+
+        MessageDialog.openInformation(shell, "Scaffold Generated",
+            "Roadmap scaffold created successfully.\n\n" +
+            "Elements: " + scaffold.created.elements.length + "\n" +
+            "Relationships: " + scaffold.created.relationships.length +
+            (config.generateView ? "\nView: " + config.projectName + " Roadmap" : ""));
+
+        log.success("Roadmap Gap Scaffold Generator complete.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

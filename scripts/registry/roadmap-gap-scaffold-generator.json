@@ -1,0 +1,28 @@
+{
+  "id": "utilities.roadmap_gap_scaffold_generator",
+  "title": "Roadmap Gap Scaffold Generator",
+  "category": ["Utilities"],
+  "order": 30,
+
+  "script": {
+    "path": "Roadmap Gap Scaffold Generator.ajs"
+  },
+
+  "description": "Wizard-driven scaffold creation for migration planning: plateaus, gaps, work packages, deliverables, and implementation events with auto-linked relationships and optional roadmap view.",
+  "tags": ["utilities", "roadmap", "gap", "scaffold", "migration", "plateau", "work-package", "deliverable"],
+
+  "help": {
+    "markdown_path": "../help/roadmap-gap-scaffold-generator.md"
+  },
+
+  "run": {
+    "danger_level": "medium",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}
