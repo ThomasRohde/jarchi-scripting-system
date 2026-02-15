@@ -253,7 +253,7 @@ load(__DIR__ + "lib/requireModel.js");
      * because jArchi proxy properties (rel.source, rel.target, objRef.concept) are read-only.
      */
     function executeMerge(groups, mergePolicy, docDelimiter) {
-        var stats = { rewired: 0, viewRefs: 0, props: 0, docs: 0, deleted: 0 };
+        var stats = { rewired: 0, viewRefs: 0, props: 0, docs: 0, deleted: 0, selfRelsRemoved: 0, dupeRelsRemoved: 0 };
 
         for (var g = 0; g < groups.length; g++) {
             var group = groups[g];
@@ -348,6 +348,37 @@ load(__DIR__ + "lib/requireModel.js");
                     log.warn("  Could not delete duplicate " + dup.id + ": " + e.toString());
                 }
             }
+
+            // 6. Post-rewire cleanup: remove self-relationships and deduplicate
+            var canonicalRels = $(canonical).rels();
+            var seenRelKeys = {};
+
+            canonicalRels.each(function (rel) {
+                // Remove self-relationships (source === target after rewiring)
+                if (rel.source && rel.target && rel.source.id === rel.target.id) {
+                    try {
+                        rel.delete();
+                        stats.selfRelsRemoved++;
+                    } catch (e) {
+                        log.warn("  Could not remove self-relationship " + rel.id + ": " + e.toString());
+                    }
+                    return;
+                }
+
+                // Remove duplicate parallel relationships (same source+target+type)
+                var relKey = (rel.source ? rel.source.id : "") + "|" +
+                             (rel.target ? rel.target.id : "") + "|" + rel.type;
+                if (seenRelKeys[relKey]) {
+                    try {
+                        rel.delete();
+                        stats.dupeRelsRemoved++;
+                    } catch (e) {
+                        log.warn("  Could not remove duplicate relationship " + rel.id + ": " + e.toString());
+                    }
+                } else {
+                    seenRelKeys[relKey] = true;
+                }
+            });
         }
 
         return stats;
@@ -650,6 +681,8 @@ load(__DIR__ + "lib/requireModel.js");
         log.detail("  View references reassigned: " + stats.viewRefs);
         log.detail("  Properties merged: " + stats.props);
         log.detail("  Documentation segments appended: " + stats.docs);
+        log.detail("  Self-relationships removed: " + stats.selfRelsRemoved);
+        log.detail("  Duplicate relationships removed: " + stats.dupeRelsRemoved);
         log.detail("  Duplicates deleted: " + stats.deleted);
 
         MessageDialog.openInformation(shell, "Merge Complete",
@@ -658,7 +691,9 @@ load(__DIR__ + "lib/requireModel.js");
             "Relationships rewired: " + stats.rewired + "\n" +
             "View references reassigned: " + stats.viewRefs + "\n" +
             "Properties merged: " + stats.props + "\n" +
-            "Documentation appended: " + stats.docs);
+            "Documentation appended: " + stats.docs + "\n" +
+            "Self-relationships removed: " + stats.selfRelsRemoved + "\n" +
+            "Duplicate relationships removed: " + stats.dupeRelsRemoved);
 
         log.success("Merge Duplicate Elements complete.");
     } catch (error) {

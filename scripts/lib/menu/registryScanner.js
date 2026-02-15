@@ -104,8 +104,11 @@
         } else {
             // Check that the script file exists (relative to scriptsRoot)
             var scriptsRoot = menuConfig.getScriptsRoot();
-            var scriptPath = Paths.get(scriptsRoot + entry.script.path);
-            if (!Files.exists(scriptPath)) {
+            var scriptPath = Paths.get(scriptsRoot + entry.script.path).normalize();
+            var rootPath = Paths.get(scriptsRoot).normalize();
+            if (!scriptPath.startsWith(rootPath)) {
+                errors.push("Script path escapes scripts root: " + entry.script.path);
+            } else if (!Files.exists(scriptPath)) {
                 errors.push("Script file not found: " + entry.script.path);
             }
         }

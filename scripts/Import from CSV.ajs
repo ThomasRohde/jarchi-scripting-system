@@ -149,6 +149,15 @@ load(__DIR__ + "lib/requireModel.js");
             return;
         }
 
+        // Validate required columns for relationship format
+        if (isRelationships && headerNorm.indexOf("type") === -1) {
+            window.alert(
+                "Relationship CSV is missing a required 'Type' column.\n\n" +
+                "Found headers: " + header.join(", ")
+            );
+            return;
+        }
+
         // =================================================================
         // Import elements
         // =================================================================

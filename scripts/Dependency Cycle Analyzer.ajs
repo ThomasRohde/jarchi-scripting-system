@@ -1,0 +1,820 @@
+/**
+ * @name Dependency Cycle Analyzer
+ * @description Detects dependency cycles in ArchiMate models using Tarjan's SCC algorithm.
+ * Reports cycles with impact scoring, concrete cycle paths, and optional view generation.
+ * Results in a tabbed dialog with sortable tables, navigation, and CSV export.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-15
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+load(__DIR__ + "lib/modelGraph.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Button = swtImports.Button;
+    var Combo = swtImports.Combo;
+    var Group = swtImports.Group;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var TabFolder = swtImports.TabFolder;
+    var TabItem = swtImports.TabItem;
+    var Display = swtImports.Display;
+
+    var OutputStreamWriter = Java.type("java.io.OutputStreamWriter");
+    var FileOutputStream = Java.type("java.io.FileOutputStream");
+    var BufferedWriter = Java.type("java.io.BufferedWriter");
+    var File = Java.type("java.io.File");
+
+    try {
+        requireModel();
+        log.header("Dependency Cycle Analyzer");
+
+        // =================================================================
+        // Helpers
+        // =================================================================
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        function safeName(obj) {
+            if (!obj) return "(missing)";
+            return obj.name && obj.name.trim() ? obj.name : "(unnamed)";
+        }
+
+        function csvEscape(value) {
+            if (value === null || value === undefined) return "";
+            var str = String(value);
+            if (str.indexOf(",") !== -1 || str.indexOf('"') !== -1 || str.indexOf("\n") !== -1 || str.indexOf("\r") !== -1) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        }
+
+        function revealInTree(id) {
+            try {
+                var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+                var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+                var StructuredSelection = Java.type("org.eclipse.jface.viewers.StructuredSelection");
+                var PlatformUI = Java.type("org.eclipse.ui.PlatformUI");
+                var eObject = null;
+                var models = IEditorModelManager.INSTANCE.getModels();
+                for (var m = 0; m < models.size(); m++) {
+                    eObject = ArchimateModelUtils.getObjectByID(models.get(m), id);
+                    if (eObject) break;
+                }
+                if (!eObject) return;
+                var page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+                var treeView = page.showView("com.archimatetool.editor.treeModelView");
+                treeView.getViewer().setSelection(new StructuredSelection(eObject), true);
+            } catch (e) {
+                log.error("Navigation failed: " + e.toString());
+            }
+        }
+
+        // =================================================================
+        // Config Dialog
+        // =================================================================
+
+        var configResult = false;
+        var config = {
+            scope: "model",
+            layerFilter: {},
+            relTypes: {},
+            generateView: false
+        };
+
+        // Initialize default rel types from all groups
+        var allGroups = ["structural", "dependency", "dynamic", "other"];
+        var defaultOnGroups = ["structural", "dependency", "dynamic"];
+        for (var gi = 0; gi < allGroups.length; gi++) {
+            var grp = modelGraph.RELATIONSHIP_GROUPS[allGroups[gi]];
+            for (var ri = 0; ri < grp.length; ri++) {
+                config.relTypes[grp[ri]] = defaultOnGroups.indexOf(allGroups[gi]) !== -1;
+            }
+        }
+
+        var w = {};
+
+        var configDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(configDialog.dialog).configureShell(newShell);
+                    newShell.setText("Dependency Cycle Analyzer");
+                    newShell.setMinimumSize(520, 580);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(configDialog.dialog).createDialogArea(parent);
+
+                    configDialog.dialog.setTitle("Cycle Detection Configuration");
+                    configDialog.dialog.setMessage(
+                        "Configure scope and relationship types to analyze for dependency cycles."
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(12, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // --- Scope ---
+                    var scopeLabel = new Label(container, SWT.NONE);
+                    scopeLabel.setText("Scope:");
+                    GridDataFactory.swtDefaults().applyTo(scopeLabel);
+
+                    w.scopeCombo = new Combo(container, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    w.scopeCombo.setItems(javaStringArray(["Entire Model", "Selected Elements", "Layer Filter"]));
+                    w.scopeCombo.select(0);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.scopeCombo);
+
+                    // --- Layer filter group ---
+                    var layerGroup = new Group(container, SWT.NONE);
+                    layerGroup.setText("Layer Filter");
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 6).applyTo(layerGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(layerGroup);
+
+                    w.layerChecks = {};
+                    var layers = modelGraph.LAYER_ORDER;
+                    for (var li = 0; li < layers.length; li++) {
+                        var cb = new Button(layerGroup, SWT.CHECK);
+                        cb.setText(modelGraph.getLayerLabel(layers[li]));
+                        cb.setSelection(true);
+                        cb.setData("layer", layers[li]);
+                        GridDataFactory.fillDefaults().applyTo(cb);
+                        w.layerChecks[layers[li]] = cb;
+                    }
+
+                    // Initially disabled (enabled when scope=Layer)
+                    function updateLayerEnabled() {
+                        var isLayer = w.scopeCombo.getSelectionIndex() === 2;
+                        var layerKeys = Object.keys(w.layerChecks);
+                        for (var i = 0; i < layerKeys.length; i++) {
+                            w.layerChecks[layerKeys[i]].setEnabled(isLayer);
+                        }
+                    }
+                    updateLayerEnabled();
+                    w.scopeCombo.addSelectionListener({
+                        widgetSelected: function () { updateLayerEnabled(); },
+                        widgetDefaultSelected: function () {}
+                    });
+
+                    // --- Relationship types ---
+                    var relGroup = new Group(container, SWT.NONE);
+                    relGroup.setText("Relationship Types");
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 6).applyTo(relGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(relGroup);
+
+                    w.relChecks = {};
+                    var groupNames = ["structural", "dependency", "dynamic", "other"];
+                    var groupLabels = ["Structural", "Dependency", "Dynamic", "Other"];
+                    for (var gi = 0; gi < groupNames.length; gi++) {
+                        var groupLabel = new Label(relGroup, SWT.NONE);
+                        groupLabel.setText(groupLabels[gi] + ":");
+                        GridDataFactory.fillDefaults().span(2, 1).indent(0, 4).applyTo(groupLabel);
+
+                        var types = modelGraph.RELATIONSHIP_GROUPS[groupNames[gi]];
+                        for (var ti = 0; ti < types.length; ti++) {
+                            var rcb = new Button(relGroup, SWT.CHECK);
+                            rcb.setText(modelGraph.getRelationshipLabel(types[ti]));
+                            rcb.setSelection(config.relTypes[types[ti]] === true);
+                            rcb.setData("relType", types[ti]);
+                            GridDataFactory.fillDefaults().indent(12, 0).applyTo(rcb);
+                            w.relChecks[types[ti]] = rcb;
+                        }
+                    }
+
+                    // --- Options ---
+                    var optGroup = new Group(container, SWT.NONE);
+                    optGroup.setText("Options");
+                    GridLayoutFactory.fillDefaults().numColumns(1).margins(8, 6).applyTo(optGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(optGroup);
+
+                    w.generateViewCheck = new Button(optGroup, SWT.CHECK);
+                    w.generateViewCheck.setText("Generate cycle view after analysis");
+                    w.generateViewCheck.setSelection(false);
+                    GridDataFactory.fillDefaults().applyTo(w.generateViewCheck);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    configDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Analyze", true);
+                    configDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", false);
+                },
+
+                okPressed: function () {
+                    var scopeIdx = w.scopeCombo.getSelectionIndex();
+                    config.scope = scopeIdx === 0 ? "model" : (scopeIdx === 1 ? "selection" : "layer");
+
+                    // Collect layer filter
+                    config.layerFilter = {};
+                    var layerKeys = Object.keys(w.layerChecks);
+                    for (var i = 0; i < layerKeys.length; i++) {
+                        if (w.layerChecks[layerKeys[i]].getSelection()) {
+                            config.layerFilter[layerKeys[i]] = true;
+                        }
+                    }
+
+                    // Collect rel types
+                    config.relTypes = {};
+                    var relKeys = Object.keys(w.relChecks);
+                    for (var i = 0; i < relKeys.length; i++) {
+                        if (w.relChecks[relKeys[i]].getSelection()) {
+                            config.relTypes[relKeys[i]] = true;
+                        }
+                    }
+
+                    config.generateView = w.generateViewCheck.getSelection();
+                    configResult = true;
+                    Java.super(configDialog.dialog).okPressed();
+                },
+
+                getInitialSize: function () {
+                    return new Point(560, 680);
+                }
+            })
+        };
+
+        configDialog.dialog.setHelpAvailable(false);
+        configDialog.dialog.open();
+
+        if (!configResult) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // =================================================================
+        // Build graph
+        // =================================================================
+
+        log.info("Building graph...");
+
+        var graphOptions = {
+            scope: config.scope,
+            relationshipTypes: config.relTypes
+        };
+
+        if (config.scope === "selection") {
+            var selectedElements = resolveSelection.selectedConcepts("element");
+            if (!selectedElements || selectedElements.size() === 0) {
+                window.alert("No elements selected. Please select elements in the tree or on a view.");
+                log.warn("No elements selected.");
+                return;
+            }
+            graphOptions.elements = selectedElements;
+        } else if (config.scope === "layer") {
+            graphOptions.layerFilter = config.layerFilter;
+        }
+
+        var graph = modelGraph.buildGraph(graphOptions);
+        log.info("Graph: " + graph.nodeCount + " nodes, " + graph.edgeCount + " edges.");
+
+        if (graph.nodeCount === 0) {
+            log.success("No elements found in the selected scope.");
+            MessageDialog.openInformation(shell, "Dependency Cycle Analyzer",
+                "No elements found in the selected scope.");
+            return;
+        }
+
+        // =================================================================
+        // Find SCCs
+        // =================================================================
+
+        log.info("Running Tarjan's SCC algorithm...");
+        var sccs = modelGraph.findSCCs(graph);
+        log.info("Found " + sccs.length + " cycle" + (sccs.length !== 1 ? "s" : "") + ".");
+
+        if (sccs.length === 0) {
+            log.success("No dependency cycles found.");
+            MessageDialog.openInformation(shell, "Dependency Cycle Analyzer",
+                "No dependency cycles found.\n\n" +
+                "Graph: " + graph.nodeCount + " elements, " + graph.edgeCount + " relationships.\n" +
+                "Scope: " + config.scope);
+            return;
+        }
+
+        // =================================================================
+        // Rank cycles and extract paths
+        // =================================================================
+
+        var cycleData = [];
+        for (var ci = 0; ci < sccs.length; ci++) {
+            var scc = sccs[ci];
+
+            // Compute metrics
+            var layerSet = {};
+            var totalDegree = 0;
+            for (var ni = 0; ni < scc.nodes.length; ni++) {
+                var node = graph.nodes[scc.nodes[ni]];
+                if (node && node.layer) layerSet[node.layer] = true;
+                totalDegree += (graph.adjacency[scc.nodes[ni]] || []).length;
+                totalDegree += (graph.reverseAdj[scc.nodes[ni]] || []).length;
+            }
+            var crossLayerCount = Object.keys(layerSet).length;
+            var avgDegree = scc.nodes.length > 0 ? totalDegree / scc.nodes.length : 0;
+
+            var impact = scc.nodes.length * 3 + scc.edges.length * 1 + crossLayerCount * 5 + Math.round(avgDegree * 2);
+
+            // Extract paths
+            var paths = modelGraph.extractCyclePaths(graph, scc, 3);
+
+            cycleData.push({
+                index: ci + 1,
+                scc: scc,
+                nodeCount: scc.nodes.length,
+                edgeCount: scc.edges.length,
+                crossLayerCount: crossLayerCount,
+                layers: Object.keys(layerSet),
+                impact: impact,
+                paths: paths
+            });
+        }
+
+        // Sort by impact descending
+        cycleData.sort(function (a, b) { return b.impact - a.impact; });
+        for (var i = 0; i < cycleData.length; i++) {
+            cycleData[i].index = i + 1;
+        }
+
+        // Build flat element rows for the Cycles tab
+        var elementRows = [];
+        for (var ci = 0; ci < cycleData.length; ci++) {
+            var cd = cycleData[ci];
+            for (var ni = 0; ni < cd.scc.nodes.length; ni++) {
+                var nodeId = cd.scc.nodes[ni];
+                var node = graph.nodes[nodeId];
+                if (!node) continue;
+
+                // Count connections within the SCC
+                var connections = 0;
+                var outE = graph.adjacency[nodeId] || [];
+                for (var ei = 0; ei < outE.length; ei++) {
+                    var edge = graph.edges[outE[ei]];
+                    if (edge) {
+                        for (var si = 0; si < cd.scc.nodes.length; si++) {
+                            if (cd.scc.nodes[si] === edge.targetId) { connections++; break; }
+                        }
+                    }
+                }
+                var inE = graph.reverseAdj[nodeId] || [];
+                for (var ei = 0; ei < inE.length; ei++) {
+                    var edge = graph.edges[inE[ei]];
+                    if (edge) {
+                        for (var si = 0; si < cd.scc.nodes.length; si++) {
+                            if (cd.scc.nodes[si] === edge.sourceId) { connections++; break; }
+                        }
+                    }
+                }
+
+                elementRows.push({
+                    cycleIndex: cd.index,
+                    impact: cd.impact,
+                    name: node.name,
+                    type: node.type,
+                    layer: modelGraph.getLayerLabel(node.layer),
+                    connections: connections,
+                    id: nodeId
+                });
+            }
+        }
+
+        // Build path rows for the Cycle Paths tab
+        var pathRows = [];
+        for (var ci = 0; ci < cycleData.length; ci++) {
+            var cd = cycleData[ci];
+            for (var pi = 0; pi < cd.paths.length; pi++) {
+                var path = cd.paths[pi];
+                var pathNames = [];
+                var layersCrossed = {};
+                for (var ni = 0; ni < path.nodeIds.length; ni++) {
+                    var node = graph.nodes[path.nodeIds[ni]];
+                    if (node) {
+                        pathNames.push(node.name);
+                        if (node.layer) layersCrossed[node.layer] = true;
+                    }
+                }
+                pathRows.push({
+                    cycleIndex: cd.index,
+                    pathLength: path.edgeIds.length,
+                    pathStr: pathNames.join(" \u2192 "),
+                    layersCrossed: Object.keys(layersCrossed).length,
+                    firstId: path.nodeIds[0]
+                });
+            }
+        }
+
+        // =================================================================
+        // Scope description for summary
+        // =================================================================
+
+        var scopeDesc = config.scope === "model" ? "Entire Model" :
+            (config.scope === "selection" ? "Selected Elements" : "Layer Filter");
+        var relTypeNames = [];
+        var rtKeys = Object.keys(config.relTypes);
+        for (var i = 0; i < rtKeys.length; i++) {
+            relTypeNames.push(modelGraph.getRelationshipLabel(rtKeys[i]));
+        }
+
+        // =================================================================
+        // Results Dialog
+        // =================================================================
+
+        var EXPORT_CSV_ID = 42;
+        var GENERATE_VIEW_ID = 43;
+
+        var ELEMENT_COLUMNS = [
+            ["Cycle#",      50],
+            ["Impact",      60],
+            ["Element",    140],
+            ["Type",       120],
+            ["Layer",       90],
+            ["Connections", 80],
+            ["ID",         100]
+        ];
+
+        var PATH_COLUMNS = [
+            ["Cycle#",         50],
+            ["Path Length",    80],
+            ["Path",          350],
+            ["Layers Crossed", 100]
+        ];
+
+        function populateTable(table, rows, columns, sortCol, ascending) {
+            table.removeAll();
+            var sorted = rows.slice().sort(function (a, b) {
+                var keys = columns.map(function (c) { return c[2]; });
+                var key = keys[sortCol];
+                var va = a[key];
+                var vb = b[key];
+                if (typeof va === "number" && typeof vb === "number") {
+                    return ascending ? va - vb : vb - va;
+                }
+                var cmp = String(va || "").localeCompare(String(vb || ""));
+                return ascending ? cmp : -cmp;
+            });
+            for (var i = 0; i < sorted.length; i++) {
+                var row = sorted[i];
+                var item = new TableItem(table, SWT.NONE);
+                var texts = [];
+                for (var c = 0; c < columns.length; c++) {
+                    texts.push(String(row[columns[c][2]] !== undefined ? row[columns[c][2]] : ""));
+                }
+                item.setText(javaStringArray(texts));
+                if (row.id) item.setData("id", row.id);
+                if (row.firstId) item.setData("id", row.firstId);
+            }
+        }
+
+        function buildSortableTable(parent, rows, columns, height) {
+            var sortCol = { value: 0 };
+            var ascending = { value: true };
+
+            var table = new Table(parent, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+            table.setHeaderVisible(true);
+            table.setLinesVisible(true);
+            GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, height || 300).applyTo(table);
+
+            for (var c = 0; c < columns.length; c++) {
+                var col = new TableColumn(table, SWT.NONE);
+                col.setText(columns[c][0]);
+                col.setWidth(columns[c][1]);
+                col.setData("colIndex", c);
+                col.addSelectionListener({
+                    widgetSelected: function (e) {
+                        var clicked = e.widget.getData("colIndex");
+                        if (clicked === sortCol.value) {
+                            ascending.value = !ascending.value;
+                        } else {
+                            sortCol.value = clicked;
+                            ascending.value = true;
+                        }
+                        table.setSortColumn(e.widget);
+                        table.setSortDirection(ascending.value ? SWT.UP : SWT.DOWN);
+                        populateTable(table, rows, columns, sortCol.value, ascending.value);
+                    },
+                    widgetDefaultSelected: function () {}
+                });
+            }
+
+            table.setSortColumn(table.getColumn(0));
+            table.setSortDirection(SWT.UP);
+            populateTable(table, rows, columns, 0, true);
+
+            table.addListener(SWT.MouseDoubleClick, function () {
+                var sel = table.getSelection();
+                if (sel.length === 0) return;
+                var id = sel[0].getData("id");
+                if (id) revealInTree(id);
+            });
+
+            return table;
+        }
+
+        // Column definitions with data keys
+        var elemCols = [
+            ["Cycle#", 50, "cycleIndex"],
+            ["Impact", 60, "impact"],
+            ["Element", 140, "name"],
+            ["Type", 120, "type"],
+            ["Layer", 90, "layer"],
+            ["Connections", 80, "connections"],
+            ["ID", 100, "id"]
+        ];
+
+        var pathCols = [
+            ["Cycle#", 50, "cycleIndex"],
+            ["Path Length", 80, "pathLength"],
+            ["Path", 350, "pathStr"],
+            ["Layers Crossed", 100, "layersCrossed"]
+        ];
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Dependency Cycle Analyzer");
+                    newShell.setMinimumSize(850, 550);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                getShellStyle: function () {
+                    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+
+                    myDialog.dialog.setTitle("Cycle Detection Results");
+                    myDialog.dialog.setMessage(
+                        cycleData.length + " cycle" + (cycleData.length !== 1 ? "s" : "") +
+                        " found in " + graph.nodeCount + " elements"
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    var tabFolder = new TabFolder(container, SWT.NONE);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(tabFolder);
+
+                    // --- Summary tab ---
+                    var summaryTab = new TabItem(tabFolder, SWT.NONE);
+                    summaryTab.setText("Summary");
+                    var summaryComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(16, 12).spacing(8, 6).applyTo(summaryComp);
+
+                    var totalElements = 0;
+                    for (var ci = 0; ci < cycleData.length; ci++) {
+                        totalElements += cycleData[ci].nodeCount;
+                    }
+
+                    var lines = [
+                        "Graph size:              " + graph.nodeCount + " elements, " + graph.edgeCount + " relationships",
+                        "Scope:                   " + scopeDesc,
+                        "Relationship types:      " + relTypeNames.join(", "),
+                        "",
+                        "Cycles found:            " + cycleData.length,
+                        "Elements in cycles:      " + totalElements,
+                        ""
+                    ];
+
+                    lines.push("Cycle breakdown:");
+                    for (var ci = 0; ci < cycleData.length; ci++) {
+                        var cd = cycleData[ci];
+                        lines.push("  Cycle " + cd.index + ": " + cd.nodeCount + " elements, " +
+                            cd.edgeCount + " relationships, impact=" + cd.impact +
+                            ", layers: " + cd.layers.map(function (l) { return modelGraph.getLayerLabel(l); }).join(", "));
+                    }
+
+                    for (var li = 0; li < lines.length; li++) {
+                        var lbl = new Label(summaryComp, SWT.NONE);
+                        lbl.setText(lines[li]);
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(lbl);
+                    }
+                    summaryTab.setControl(summaryComp);
+
+                    // --- Cycles tab ---
+                    var cyclesTab = new TabItem(tabFolder, SWT.NONE);
+                    cyclesTab.setText("Cycles (" + elementRows.length + ")");
+                    var cyclesComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(cyclesComp);
+
+                    buildSortableTable(cyclesComp, elementRows, elemCols, 350);
+
+                    var cyclesFooter = new Label(cyclesComp, SWT.NONE);
+                    cyclesFooter.setText(elementRows.length + " elements in " + cycleData.length +
+                        " cycles  |  Double-click to reveal  |  Click headers to sort");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(cyclesFooter);
+                    cyclesTab.setControl(cyclesComp);
+
+                    // --- Cycle Paths tab ---
+                    var pathsTab = new TabItem(tabFolder, SWT.NONE);
+                    pathsTab.setText("Cycle Paths (" + pathRows.length + ")");
+                    var pathsComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(pathsComp);
+
+                    if (pathRows.length > 0) {
+                        buildSortableTable(pathsComp, pathRows, pathCols, 350);
+                    } else {
+                        var noPathsLabel = new Label(pathsComp, SWT.NONE);
+                        noPathsLabel.setText("No concrete cycle paths extracted.");
+                        GridDataFactory.fillDefaults().grab(true, true).applyTo(noPathsLabel);
+                    }
+
+                    var pathsFooter = new Label(pathsComp, SWT.NONE);
+                    pathsFooter.setText(pathRows.length + " paths  |  Double-click to reveal first element");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(pathsFooter);
+                    pathsTab.setControl(pathsComp);
+
+                    // Select cycles tab
+                    tabFolder.setSelection(1);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, EXPORT_CSV_ID, "Export CSV", false);
+                    if (config.generateView) {
+                        myDialog.dialog.createButton(parent, GENERATE_VIEW_ID, "Generate View", false);
+                    }
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                buttonPressed: function (buttonId) {
+                    if (buttonId === EXPORT_CSV_ID) {
+                        exportCsv();
+                        return;
+                    }
+                    if (buttonId === GENERATE_VIEW_ID) {
+                        generateCycleView();
+                        return;
+                    }
+                    Java.super(myDialog.dialog).okPressed();
+                },
+
+                getInitialSize: function () {
+                    return new Point(950, 650);
+                }
+            })
+        };
+
+        // =================================================================
+        // CSV Export
+        // =================================================================
+
+        function exportCsv() {
+            var outputDir = window.promptOpenDirectory({
+                title: "Select output directory for cycle report"
+            });
+            if (!outputDir) return;
+
+            var filePath = outputDir + File.separator + "dependency_cycle_report.csv";
+            var headers = ["Cycle", "Impact Score", "Element", "Type", "Layer", "Connections", "Element ID", "Path Example"];
+
+            var writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), "UTF-8"));
+            try {
+                writer.write(headers.map(csvEscape).join(","));
+                writer.newLine();
+                for (var i = 0; i < elementRows.length; i++) {
+                    var r = elementRows[i];
+                    // Find a path for this cycle
+                    var pathExample = "";
+                    for (var pi = 0; pi < pathRows.length; pi++) {
+                        if (pathRows[pi].cycleIndex === r.cycleIndex) {
+                            pathExample = pathRows[pi].pathStr;
+                            break;
+                        }
+                    }
+                    var row = [
+                        r.cycleIndex, r.impact, r.name, r.type, r.layer,
+                        r.connections, r.id, pathExample
+                    ];
+                    writer.write(row.map(csvEscape).join(","));
+                    writer.newLine();
+                }
+            } finally {
+                writer.close();
+            }
+
+            log.success("Exported " + elementRows.length + " rows to " + filePath);
+            MessageDialog.openInformation(shell, "Export Complete",
+                "Exported " + elementRows.length + " rows to:\n" + filePath);
+        }
+
+        // =================================================================
+        // View Generation
+        // =================================================================
+
+        var CYCLE_COLORS = [
+            "#FFB3B3", "#B3D9FF", "#B3FFB3", "#FFE0B3",
+            "#E0B3FF", "#B3FFE0", "#FFB3E0", "#FFFFB3"
+        ];
+
+        function generateCycleView() {
+            try {
+                var now = new Date();
+                var dateStr = now.getFullYear() + "-" +
+                    String(now.getMonth() + 1).padStart(2, "0") + "-" +
+                    String(now.getDate()).padStart(2, "0");
+                var viewName = "Dependency Cycles (" + dateStr + ")";
+                var newView = model.createArchimateView(viewName);
+
+                var GRID_X = 180;
+                var GRID_Y = 80;
+                var PADDING_X = 40;
+                var PADDING_Y = 60;
+                var ELEMENT_W = 160;
+                var ELEMENT_H = 60;
+
+                var addedObjects = {};
+                var currentY = PADDING_Y;
+
+                for (var ci = 0; ci < cycleData.length; ci++) {
+                    var cd = cycleData[ci];
+                    var color = CYCLE_COLORS[ci % CYCLE_COLORS.length];
+
+                    // Place elements in a grid for this cycle
+                    var cols = Math.ceil(Math.sqrt(cd.nodeCount));
+                    for (var ni = 0; ni < cd.scc.nodes.length; ni++) {
+                        var nodeId = cd.scc.nodes[ni];
+                        var node = graph.nodes[nodeId];
+                        if (!node || !node.element) continue;
+
+                        var col = ni % cols;
+                        var row = Math.floor(ni / cols);
+                        var x = PADDING_X + col * GRID_X;
+                        var y = currentY + row * GRID_Y;
+
+                        var obj = newView.add(node.element, x, y, ELEMENT_W, ELEMENT_H);
+                        obj.fillColor = color;
+                        addedObjects[nodeId] = obj;
+                    }
+
+                    var rows = Math.ceil(cd.scc.nodes.length / cols);
+                    currentY += rows * GRID_Y + PADDING_Y;
+                }
+
+                // Add relationships
+                for (var ci = 0; ci < cycleData.length; ci++) {
+                    var cd = cycleData[ci];
+                    for (var ei = 0; ei < cd.scc.edges.length; ei++) {
+                        var edge = graph.edges[cd.scc.edges[ei]];
+                        if (!edge || !edge.relationship) continue;
+                        var srcObj = addedObjects[edge.sourceId];
+                        var tgtObj = addedObjects[edge.targetId];
+                        if (srcObj && tgtObj) {
+                            newView.add(edge.relationship, srcObj, tgtObj);
+                        }
+                    }
+                }
+
+                newView.openInUI();
+                log.success("Generated view: " + viewName);
+                MessageDialog.openInformation(shell, "View Generated",
+                    "Created view '" + viewName + "' with " + cycleData.length + " cycles.");
+            } catch (e) {
+                log.error("View generation failed: " + e.toString());
+                MessageDialog.openError(shell, "Error", "Failed to generate view:\n" + e.toString());
+            }
+        }
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Cycle analysis complete: " + cycleData.length + " cycles found.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

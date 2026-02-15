@@ -10,7 +10,8 @@ const ROOTS = [
   path.join(PROJECT_ROOT, "scripts"),
 ];
 
-const SKIP_DIRS = new Set(["node_modules", ".git", "vendor"]);
+const SKIP_DIRS = new Set(["node_modules", ".git"]);
+const SKIP_FILE_PATTERNS = [/\.min\.js$/, /\.umd\.js$/];
 
 function collectFiles(dir, out) {
   if (!fs.existsSync(dir)) {
@@ -28,7 +29,8 @@ function collectFiles(dir, out) {
     }
 
     if (entry.isFile() && (entry.name.endsWith(".js") || entry.name.endsWith(".ajs"))) {
-      out.push(fullPath);
+      const skip = SKIP_FILE_PATTERNS.some(p => p.test(entry.name));
+      if (!skip) out.push(fullPath);
     }
   }
 }

@@ -26,6 +26,8 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 | **Find Duplicate Elements** | Scans the model for elements that share the same name and type. Displays groups of duplicates in a sortable table, helping identify candidates for merging. |
 | **Relationship Compliance Checker** | Validates all relationships against the ArchiMate 3.1 specification matrix. Reports invalid relationships (errors) and weak modeling patterns (warnings) in a tabbed dialog with sortable tables, navigation, and CSV export. |
 | **Strict Layer Violation Detector** | Detects cross-layer relationship violations based on a configurable layering policy. Reports prohibited direct links between non-adjacent ArchiMate layers with mediation suggestions. Results in a tabbed dialog with sortable tables, navigation, and CSV export. |
+| **Dependency Cycle Analyzer** | Detects dependency cycles in ArchiMate models using Tarjan's SCC algorithm. Reports cycles with impact scoring, concrete cycle paths, and optional view generation. Configurable scope, layer filter, and relationship type selection. |
+| **Impact Path Explorer** | Explores downstream and upstream dependency paths from selected elements using BFS traversal. Shows impacted endpoints, full paths, and optionally generates an impact analysis view. Requires element selection. |
 
 ## Visualization
 

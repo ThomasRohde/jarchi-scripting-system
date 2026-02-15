@@ -57,9 +57,9 @@ load(__DIR__ + "lib/chartDataCollectors.js");
     function getRawModel() {
         var models = IEditorModelManager.INSTANCE.getModels();
         if (models.size() === 1) return models.get(0);
-        var modelName = model.name;
+        var modelId = model.id;
         for (var i = 0; i < models.size(); i++) {
-            if (models.get(i).getName() === modelName) return models.get(i);
+            if (String(models.get(i).getId()) === modelId) return models.get(i);
         }
         return models.get(0);
     }

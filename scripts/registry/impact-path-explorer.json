@@ -1,0 +1,23 @@
+{
+    "id": "analysis.impact_path_explorer",
+    "title": "Impact Path Explorer",
+    "category": ["Analysis"],
+    "order": 25,
+    "script": {
+        "path": "Impact Path Explorer.ajs"
+    },
+    "description": "Explores downstream and upstream dependency paths from selected elements using BFS traversal. Shows impacted endpoints, full paths, and optionally generates an impact analysis view.",
+    "tags": ["analysis", "impact", "dependencies", "paths", "bfs", "graph", "architecture"],
+    "help": {
+        "markdown_path": "../help/impact-path-explorer.md"
+    },
+    "run": {
+        "danger_level": "low",
+        "confirm_message": ""
+    },
+    "selection": {
+        "types": ["element"],
+        "min": 1,
+        "require_view": false
+    }
+}

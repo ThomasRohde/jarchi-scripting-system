@@ -1,0 +1,779 @@
+/**
+ * @name Impact Path Explorer
+ * @description Explores downstream and upstream dependency paths from selected elements
+ * using BFS traversal. Shows impacted endpoints, full paths, and optionally generates
+ * an impact analysis view. Results in a tabbed dialog with sortable tables, navigation,
+ * and CSV export.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-15
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+load(__DIR__ + "lib/modelGraph.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Button = swtImports.Button;
+    var Combo = swtImports.Combo;
+    var Group = swtImports.Group;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var TabFolder = swtImports.TabFolder;
+    var TabItem = swtImports.TabItem;
+    var Display = swtImports.Display;
+
+    var Spinner = Java.type("org.eclipse.swt.widgets.Spinner");
+    var OutputStreamWriter = Java.type("java.io.OutputStreamWriter");
+    var FileOutputStream = Java.type("java.io.FileOutputStream");
+    var BufferedWriter = Java.type("java.io.BufferedWriter");
+    var File = Java.type("java.io.File");
+
+    try {
+        requireModel();
+        log.header("Impact Path Explorer");
+
+        // =================================================================
+        // Helpers
+        // =================================================================
+
+        function javaStringArray(arr) {
+            var StringArray = Java.type("java.lang.String[]");
+            var result = new StringArray(arr.length);
+            for (var i = 0; i < arr.length; i++) {
+                result[i] = arr[i];
+            }
+            return result;
+        }
+
+        function safeName(obj) {
+            if (!obj) return "(missing)";
+            return obj.name && obj.name.trim() ? obj.name : "(unnamed)";
+        }
+
+        function csvEscape(value) {
+            if (value === null || value === undefined) return "";
+            var str = String(value);
+            if (str.indexOf(",") !== -1 || str.indexOf('"') !== -1 || str.indexOf("\n") !== -1 || str.indexOf("\r") !== -1) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        }
+
+        function revealInTree(id) {
+            try {
+                var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+                var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+                var StructuredSelection = Java.type("org.eclipse.jface.viewers.StructuredSelection");
+                var PlatformUI = Java.type("org.eclipse.ui.PlatformUI");
+                var eObject = null;
+                var models = IEditorModelManager.INSTANCE.getModels();
+                for (var m = 0; m < models.size(); m++) {
+                    eObject = ArchimateModelUtils.getObjectByID(models.get(m), id);
+                    if (eObject) break;
+                }
+                if (!eObject) return;
+                var page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+                var treeView = page.showView("com.archimatetool.editor.treeModelView");
+                treeView.getViewer().setSelection(new StructuredSelection(eObject), true);
+            } catch (e) {
+                log.error("Navigation failed: " + e.toString());
+            }
+        }
+
+        // =================================================================
+        // Get seeds
+        // =================================================================
+
+        var seeds = resolveSelection.selectedConcepts("element");
+        if (!seeds || seeds.size() === 0) {
+            window.alert("No elements selected.\n\nPlease select one or more elements in the model tree or on a view, then run this script again.");
+            log.warn("No elements selected.");
+            return;
+        }
+
+        var seedList = [];
+        var seedNames = [];
+        seeds.each(function (el) {
+            seedList.push({ id: el.id, name: safeName(el), type: el.type, element: el });
+            seedNames.push(safeName(el));
+        });
+
+        log.info("Seeds: " + seedList.length + " element" + (seedList.length !== 1 ? "s" : "") + " selected.");
+
+        // =================================================================
+        // Config Dialog
+        // =================================================================
+
+        var configResult = false;
+        var config = {
+            direction: "downstream",
+            maxDepth: 5,
+            relTypes: {},
+            generateView: false
+        };
+
+        // Initialize default rel types (influence, specialization, association off by default)
+        var allGroups = ["structural", "dependency", "dynamic", "other"];
+        for (var gi = 0; gi < allGroups.length; gi++) {
+            var grp = modelGraph.RELATIONSHIP_GROUPS[allGroups[gi]];
+            for (var ri = 0; ri < grp.length; ri++) {
+                config.relTypes[grp[ri]] = true;
+            }
+        }
+        // Turn off some by default
+        config.relTypes["influence-relationship"] = false;
+        config.relTypes["specialization-relationship"] = false;
+        config.relTypes["association-relationship"] = false;
+
+        var w = {};
+
+        var configDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(configDialog.dialog).configureShell(newShell);
+                    newShell.setText("Impact Path Explorer");
+                    newShell.setMinimumSize(520, 620);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(configDialog.dialog).createDialogArea(parent);
+
+                    configDialog.dialog.setTitle("Impact Path Configuration");
+                    configDialog.dialog.setMessage(
+                        "Configure direction, depth, and relationship types for impact analysis."
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(12, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // --- Seeds (read-only) ---
+                    var seedsGroup = new Group(container, SWT.NONE);
+                    seedsGroup.setText("Seed Elements (" + seedList.length + ")");
+                    GridLayoutFactory.fillDefaults().numColumns(1).margins(8, 6).applyTo(seedsGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(seedsGroup);
+
+                    var seedText = seedNames.length <= 8
+                        ? seedNames.join(", ")
+                        : seedNames.slice(0, 8).join(", ") + " ... and " + (seedNames.length - 8) + " more";
+                    var seedLabel = new Label(seedsGroup, SWT.WRAP);
+                    seedLabel.setText(seedText);
+                    GridDataFactory.fillDefaults().grab(true, false).hint(400, SWT.DEFAULT).applyTo(seedLabel);
+
+                    // --- Direction ---
+                    var dirLabel = new Label(container, SWT.NONE);
+                    dirLabel.setText("Direction:");
+                    GridDataFactory.swtDefaults().applyTo(dirLabel);
+
+                    w.dirCombo = new Combo(container, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    w.dirCombo.setItems(javaStringArray(["Downstream", "Upstream", "Both"]));
+                    w.dirCombo.select(0);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.dirCombo);
+
+                    // --- Max depth ---
+                    var depthLabel = new Label(container, SWT.NONE);
+                    depthLabel.setText("Max depth:");
+                    GridDataFactory.swtDefaults().applyTo(depthLabel);
+
+                    w.depthSpinner = new Spinner(container, SWT.BORDER);
+                    w.depthSpinner.setMinimum(1);
+                    w.depthSpinner.setMaximum(15);
+                    w.depthSpinner.setSelection(5);
+                    w.depthSpinner.setIncrement(1);
+                    GridDataFactory.fillDefaults().hint(80, SWT.DEFAULT).applyTo(w.depthSpinner);
+
+                    // --- Relationship types ---
+                    var relGroup = new Group(container, SWT.NONE);
+                    relGroup.setText("Relationship Types");
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 6).applyTo(relGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(relGroup);
+
+                    w.relChecks = {};
+                    var groupNames = ["structural", "dependency", "dynamic", "other"];
+                    var groupLabels = ["Structural", "Dependency", "Dynamic", "Other"];
+                    for (var gi = 0; gi < groupNames.length; gi++) {
+                        var gLabel = new Label(relGroup, SWT.NONE);
+                        gLabel.setText(groupLabels[gi] + ":");
+                        GridDataFactory.fillDefaults().span(2, 1).indent(0, 4).applyTo(gLabel);
+
+                        var types = modelGraph.RELATIONSHIP_GROUPS[groupNames[gi]];
+                        for (var ti = 0; ti < types.length; ti++) {
+                            var rcb = new Button(relGroup, SWT.CHECK);
+                            rcb.setText(modelGraph.getRelationshipLabel(types[ti]));
+                            rcb.setSelection(config.relTypes[types[ti]] === true);
+                            rcb.setData("relType", types[ti]);
+                            GridDataFactory.fillDefaults().indent(12, 0).applyTo(rcb);
+                            w.relChecks[types[ti]] = rcb;
+                        }
+                    }
+
+                    // --- Options ---
+                    var optGroup = new Group(container, SWT.NONE);
+                    optGroup.setText("Options");
+                    GridLayoutFactory.fillDefaults().numColumns(1).margins(8, 6).applyTo(optGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(optGroup);
+
+                    w.generateViewCheck = new Button(optGroup, SWT.CHECK);
+                    w.generateViewCheck.setText("Generate impact view after analysis");
+                    w.generateViewCheck.setSelection(false);
+                    GridDataFactory.fillDefaults().applyTo(w.generateViewCheck);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    configDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Explore", true);
+                    configDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", false);
+                },
+
+                okPressed: function () {
+                    var dirIdx = w.dirCombo.getSelectionIndex();
+                    config.direction = dirIdx === 0 ? "downstream" : (dirIdx === 1 ? "upstream" : "both");
+                    config.maxDepth = w.depthSpinner.getSelection();
+
+                    config.relTypes = {};
+                    var relKeys = Object.keys(w.relChecks);
+                    for (var i = 0; i < relKeys.length; i++) {
+                        if (w.relChecks[relKeys[i]].getSelection()) {
+                            config.relTypes[relKeys[i]] = true;
+                        }
+                    }
+
+                    config.generateView = w.generateViewCheck.getSelection();
+                    configResult = true;
+                    Java.super(configDialog.dialog).okPressed();
+                },
+
+                getInitialSize: function () {
+                    return new Point(560, 720);
+                }
+            })
+        };
+
+        configDialog.dialog.setHelpAvailable(false);
+        configDialog.dialog.open();
+
+        if (!configResult) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // =================================================================
+        // Build graph
+        // =================================================================
+
+        log.info("Building graph...");
+        var graph = modelGraph.buildGraph({
+            scope: "model",
+            relationshipTypes: config.relTypes
+        });
+        log.info("Graph: " + graph.nodeCount + " nodes, " + graph.edgeCount + " edges.");
+
+        if (graph.nodeCount === 0) {
+            log.success("No elements found in model.");
+            MessageDialog.openInformation(shell, "Impact Path Explorer",
+                "No elements found in the model.");
+            return;
+        }
+
+        // =================================================================
+        // Find paths
+        // =================================================================
+
+        log.info("Finding paths (" + config.direction + ", max depth " + config.maxDepth + ")...");
+        var seedIds = seedList.map(function (s) { return s.id; });
+        var paths = modelGraph.findPathsBFS(graph, seedIds, {
+            direction: config.direction,
+            maxDepth: config.maxDepth,
+            maxPaths: 500
+        });
+        log.info("Found " + paths.length + " path" + (paths.length !== 1 ? "s" : "") + ".");
+
+        if (paths.length === 0) {
+            log.success("No impact paths found from the selected seeds.");
+            MessageDialog.openInformation(shell, "Impact Path Explorer",
+                "No impact paths found.\n\n" +
+                "Seeds: " + seedList.length + " elements\n" +
+                "Direction: " + config.direction + "\n" +
+                "Max depth: " + config.maxDepth + "\n\n" +
+                "Try increasing the depth or enabling more relationship types.");
+            return;
+        }
+
+        // =================================================================
+        // Compute endpoint stats
+        // =================================================================
+
+        var endpointMap = {};
+        for (var pi = 0; pi < paths.length; pi++) {
+            var p = paths[pi];
+            var epId = p.endpointId;
+            // Skip seeds as endpoints
+            if (seedIds.indexOf(epId) !== -1) continue;
+
+            if (!endpointMap[epId]) {
+                var node = graph.nodes[epId];
+                endpointMap[epId] = {
+                    id: epId,
+                    name: node ? node.name : "(unknown)",
+                    type: node ? node.type : "(unknown)",
+                    layer: node ? modelGraph.getLayerLabel(node.layer) : "(unknown)",
+                    pathCount: 0,
+                    minDepth: 999,
+                    maxDepth: 0,
+                    directions: {}
+                };
+            }
+            endpointMap[epId].pathCount++;
+            if (p.length < endpointMap[epId].minDepth) endpointMap[epId].minDepth = p.length;
+            if (p.length > endpointMap[epId].maxDepth) endpointMap[epId].maxDepth = p.length;
+            endpointMap[epId].directions[p.direction] = true;
+        }
+
+        var endpointRows = [];
+        var epKeys = Object.keys(endpointMap);
+        for (var i = 0; i < epKeys.length; i++) {
+            var ep = endpointMap[epKeys[i]];
+            ep.directionStr = Object.keys(ep.directions).join(", ");
+            endpointRows.push(ep);
+        }
+
+        // Sort by path count descending
+        endpointRows.sort(function (a, b) { return b.pathCount - a.pathCount; });
+
+        // Build path rows
+        var pathRows = [];
+        for (var pi = 0; pi < paths.length; pi++) {
+            var p = paths[pi];
+            // Build descriptive path string with relationship types
+            var pathParts = [];
+            for (var ni = 0; ni < p.nodeIds.length; ni++) {
+                var node = graph.nodes[p.nodeIds[ni]];
+                pathParts.push(node ? node.name : "?");
+                if (ni < p.edgeIds.length) {
+                    var edge = graph.edges[p.edgeIds[ni]];
+                    if (edge) {
+                        pathParts.push("[" + modelGraph.getRelationshipLabel(edge.type) + "]");
+                    }
+                }
+            }
+
+            var seedNode = graph.nodes[p.seedId];
+            pathRows.push({
+                seed: seedNode ? seedNode.name : "?",
+                direction: p.direction,
+                length: p.length,
+                pathStr: pathParts.join(" \u2192 "),
+                endpoint: p.endpointName,
+                endpointType: p.endpointType,
+                endpointId: p.endpointId
+            });
+        }
+
+        // =================================================================
+        // Scope description for summary
+        // =================================================================
+
+        var directionLabel = config.direction === "downstream" ? "Downstream" :
+            (config.direction === "upstream" ? "Upstream" : "Both");
+        var relTypeNames = [];
+        var rtKeys = Object.keys(config.relTypes);
+        for (var i = 0; i < rtKeys.length; i++) {
+            relTypeNames.push(modelGraph.getRelationshipLabel(rtKeys[i]));
+        }
+
+        // Top 10 most impacted endpoints
+        var top10 = endpointRows.slice(0, 10);
+
+        // =================================================================
+        // Results Dialog
+        // =================================================================
+
+        var EXPORT_CSV_ID = 42;
+        var GENERATE_VIEW_ID = 43;
+
+        var endpointCols = [
+            ["Element", 140, "name"],
+            ["Type", 120, "type"],
+            ["Layer", 90, "layer"],
+            ["Paths", 55, "pathCount"],
+            ["Min Depth", 70, "minDepth"],
+            ["Max Depth", 70, "maxDepth"],
+            ["Direction", 90, "directionStr"],
+            ["ID", 100, "id"]
+        ];
+
+        var pathTableCols = [
+            ["Seed", 100, "seed"],
+            ["Direction", 80, "direction"],
+            ["Length", 55, "length"],
+            ["Path", 350, "pathStr"],
+            ["Endpoint", 110, "endpoint"],
+            ["Endpoint Type", 110, "endpointType"]
+        ];
+
+        function populateTable(table, rows, columns, sortCol, ascending) {
+            table.removeAll();
+            var sorted = rows.slice().sort(function (a, b) {
+                var key = columns[sortCol][2];
+                var va = a[key];
+                var vb = b[key];
+                if (typeof va === "number" && typeof vb === "number") {
+                    return ascending ? va - vb : vb - va;
+                }
+                var cmp = String(va || "").localeCompare(String(vb || ""));
+                return ascending ? cmp : -cmp;
+            });
+            for (var i = 0; i < sorted.length; i++) {
+                var row = sorted[i];
+                var item = new TableItem(table, SWT.NONE);
+                var texts = [];
+                for (var c = 0; c < columns.length; c++) {
+                    texts.push(String(row[columns[c][2]] !== undefined ? row[columns[c][2]] : ""));
+                }
+                item.setText(javaStringArray(texts));
+                if (row.id) item.setData("id", row.id);
+                if (row.endpointId) item.setData("endpointId", row.endpointId);
+            }
+        }
+
+        function buildSortableTable(parent, rows, columns, idKey, height) {
+            var sortCol = { value: 0 };
+            var ascending = { value: true };
+
+            var table = new Table(parent, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+            table.setHeaderVisible(true);
+            table.setLinesVisible(true);
+            GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, height || 300).applyTo(table);
+
+            for (var c = 0; c < columns.length; c++) {
+                var col = new TableColumn(table, SWT.NONE);
+                col.setText(columns[c][0]);
+                col.setWidth(columns[c][1]);
+                col.setData("colIndex", c);
+                col.addSelectionListener({
+                    widgetSelected: function (e) {
+                        var clicked = e.widget.getData("colIndex");
+                        if (clicked === sortCol.value) {
+                            ascending.value = !ascending.value;
+                        } else {
+                            sortCol.value = clicked;
+                            ascending.value = true;
+                        }
+                        table.setSortColumn(e.widget);
+                        table.setSortDirection(ascending.value ? SWT.UP : SWT.DOWN);
+                        populateTable(table, rows, columns, sortCol.value, ascending.value);
+                    },
+                    widgetDefaultSelected: function () {}
+                });
+            }
+
+            table.setSortColumn(table.getColumn(0));
+            table.setSortDirection(SWT.UP);
+            populateTable(table, rows, columns, 0, true);
+
+            table.addListener(SWT.MouseDoubleClick, function () {
+                var sel = table.getSelection();
+                if (sel.length === 0) return;
+                var id = sel[0].getData("id") || sel[0].getData("endpointId");
+                if (id) revealInTree(id);
+            });
+
+            return table;
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Impact Path Explorer");
+                    newShell.setMinimumSize(900, 550);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                getShellStyle: function () {
+                    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+
+                    myDialog.dialog.setTitle("Impact Analysis Results");
+                    myDialog.dialog.setMessage(
+                        paths.length + " path" + (paths.length !== 1 ? "s" : "") +
+                        " found, " + endpointRows.length + " unique endpoint" + (endpointRows.length !== 1 ? "s" : "")
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    var tabFolder = new TabFolder(container, SWT.NONE);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(tabFolder);
+
+                    // --- Summary tab ---
+                    var summaryTab = new TabItem(tabFolder, SWT.NONE);
+                    summaryTab.setText("Summary");
+                    var summaryComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(16, 12).spacing(8, 6).applyTo(summaryComp);
+
+                    var lines = [
+                        "Seeds:                   " + seedNames.join(", "),
+                        "Direction:               " + directionLabel,
+                        "Max depth:               " + config.maxDepth,
+                        "Relationship types:      " + relTypeNames.join(", "),
+                        "",
+                        "Total paths:             " + paths.length,
+                        "Unique endpoints:        " + endpointRows.length,
+                        ""
+                    ];
+
+                    if (top10.length > 0) {
+                        lines.push("Top " + Math.min(10, top10.length) + " most-impacted endpoints:");
+                        for (var i = 0; i < top10.length; i++) {
+                            var ep = top10[i];
+                            lines.push("  " + (i + 1) + ". " + ep.name + " (" + ep.type + ") \u2014 " +
+                                ep.pathCount + " paths, depth " + ep.minDepth + "-" + ep.maxDepth);
+                        }
+                    }
+
+                    for (var li = 0; li < lines.length; li++) {
+                        var lbl = new Label(summaryComp, SWT.NONE);
+                        lbl.setText(lines[li]);
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(lbl);
+                    }
+                    summaryTab.setControl(summaryComp);
+
+                    // --- Endpoints tab ---
+                    var endpointsTab = new TabItem(tabFolder, SWT.NONE);
+                    endpointsTab.setText("Endpoints (" + endpointRows.length + ")");
+                    var endpointsComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(endpointsComp);
+
+                    buildSortableTable(endpointsComp, endpointRows, endpointCols, "id", 350);
+
+                    var epFooter = new Label(endpointsComp, SWT.NONE);
+                    epFooter.setText(endpointRows.length + " endpoints  |  Double-click to reveal  |  Click headers to sort");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(epFooter);
+                    endpointsTab.setControl(endpointsComp);
+
+                    // --- Paths tab ---
+                    var pathsTab = new TabItem(tabFolder, SWT.NONE);
+                    pathsTab.setText("Paths (" + pathRows.length + ")");
+                    var pathsComp = new Composite(tabFolder, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(4, 4).applyTo(pathsComp);
+
+                    buildSortableTable(pathsComp, pathRows, pathTableCols, "endpointId", 350);
+
+                    var pathsFooter = new Label(pathsComp, SWT.NONE);
+                    pathsFooter.setText(pathRows.length + " paths  |  Double-click to reveal endpoint");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(pathsFooter);
+                    pathsTab.setControl(pathsComp);
+
+                    // Select endpoints tab
+                    tabFolder.setSelection(1);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, EXPORT_CSV_ID, "Export CSV", false);
+                    if (config.generateView) {
+                        myDialog.dialog.createButton(parent, GENERATE_VIEW_ID, "Generate View", false);
+                    }
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Close", true);
+                },
+
+                buttonPressed: function (buttonId) {
+                    if (buttonId === EXPORT_CSV_ID) {
+                        exportCsv();
+                        return;
+                    }
+                    if (buttonId === GENERATE_VIEW_ID) {
+                        generateImpactView();
+                        return;
+                    }
+                    Java.super(myDialog.dialog).okPressed();
+                },
+
+                getInitialSize: function () {
+                    return new Point(1050, 650);
+                }
+            })
+        };
+
+        // =================================================================
+        // CSV Export
+        // =================================================================
+
+        function exportCsv() {
+            var outputDir = window.promptOpenDirectory({
+                title: "Select output directory for impact paths report"
+            });
+            if (!outputDir) return;
+
+            var filePath = outputDir + File.separator + "impact_paths.csv";
+            var headers = ["Seed", "Direction", "Length", "Path", "Endpoint", "Endpoint Type", "Endpoint Layer"];
+
+            var writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(filePath), "UTF-8"));
+            try {
+                writer.write(headers.map(csvEscape).join(","));
+                writer.newLine();
+                for (var i = 0; i < pathRows.length; i++) {
+                    var r = pathRows[i];
+                    var epLayer = "";
+                    if (endpointMap[r.endpointId]) {
+                        epLayer = endpointMap[r.endpointId].layer;
+                    }
+                    var row = [
+                        r.seed, r.direction, r.length, r.pathStr,
+                        r.endpoint, r.endpointType, epLayer
+                    ];
+                    writer.write(row.map(csvEscape).join(","));
+                    writer.newLine();
+                }
+            } finally {
+                writer.close();
+            }
+
+            log.success("Exported " + pathRows.length + " paths to " + filePath);
+            MessageDialog.openInformation(shell, "Export Complete",
+                "Exported " + pathRows.length + " paths to:\n" + filePath);
+        }
+
+        // =================================================================
+        // View Generation
+        // =================================================================
+
+        function generateImpactView() {
+            try {
+                var now = new Date();
+                var dateStr = now.getFullYear() + "-" +
+                    String(now.getMonth() + 1).padStart(2, "0") + "-" +
+                    String(now.getDate()).padStart(2, "0");
+                var viewName = "Impact Analysis (" + dateStr + ")";
+                var newView = model.createArchimateView(viewName);
+
+                var COLUMN_WIDTH = 200;
+                var PADDING_X = 40;
+                var PADDING_Y = 40;
+                var ELEMENT_W = 160;
+                var ELEMENT_H = 60;
+                var ROW_HEIGHT = 80;
+                var SEED_COLOR = "#FFE0E0";
+
+                // Group elements by depth from seeds
+                var depthMap = {};  // id -> min depth
+                var elementSet = {};
+
+                // Seeds are depth 0
+                for (var si = 0; si < seedIds.length; si++) {
+                    depthMap[seedIds[si]] = 0;
+                    elementSet[seedIds[si]] = true;
+                }
+
+                // Process paths to find min depth per element
+                for (var pi = 0; pi < paths.length; pi++) {
+                    var p = paths[pi];
+                    for (var ni = 0; ni < p.nodeIds.length; ni++) {
+                        var nid = p.nodeIds[ni];
+                        elementSet[nid] = true;
+                        if (depthMap[nid] === undefined || ni < depthMap[nid]) {
+                            depthMap[nid] = ni;
+                        }
+                    }
+                }
+
+                // Group by depth
+                var depthGroups = {};
+                var maxDepthSeen = 0;
+                var eids = Object.keys(elementSet);
+                for (var i = 0; i < eids.length; i++) {
+                    var depth = depthMap[eids[i]] || 0;
+                    if (!depthGroups[depth]) depthGroups[depth] = [];
+                    depthGroups[depth].push(eids[i]);
+                    if (depth > maxDepthSeen) maxDepthSeen = depth;
+                }
+
+                // Place elements
+                var addedObjects = {};
+                for (var d = 0; d <= maxDepthSeen; d++) {
+                    var group = depthGroups[d] || [];
+                    var x = PADDING_X + d * COLUMN_WIDTH;
+                    for (var gi = 0; gi < group.length; gi++) {
+                        var nid = group[gi];
+                        var node = graph.nodes[nid];
+                        if (!node || !node.element) continue;
+
+                        var y = PADDING_Y + gi * ROW_HEIGHT;
+                        var obj = newView.add(node.element, x, y, ELEMENT_W, ELEMENT_H);
+                        if (d === 0) {
+                            obj.fillColor = SEED_COLOR;
+                        }
+                        addedObjects[nid] = obj;
+                    }
+                }
+
+                // Add relationships from paths
+                var addedRels = {};
+                for (var pi = 0; pi < paths.length; pi++) {
+                    var p = paths[pi];
+                    for (var ei = 0; ei < p.edgeIds.length; ei++) {
+                        var edgeId = p.edgeIds[ei];
+                        if (addedRels[edgeId]) continue;
+                        var edge = graph.edges[edgeId];
+                        if (!edge || !edge.relationship) continue;
+                        var srcObj = addedObjects[edge.sourceId];
+                        var tgtObj = addedObjects[edge.targetId];
+                        if (srcObj && tgtObj) {
+                            newView.add(edge.relationship, srcObj, tgtObj);
+                            addedRels[edgeId] = true;
+                        }
+                    }
+                }
+
+                newView.openInUI();
+                log.success("Generated view: " + viewName);
+                MessageDialog.openInformation(shell, "View Generated",
+                    "Created view '" + viewName + "' with " + Object.keys(addedObjects).length + " elements.");
+            } catch (e) {
+                log.error("View generation failed: " + e.toString());
+                MessageDialog.openError(shell, "Error", "Failed to generate view:\n" + e.toString());
+            }
+        }
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        log.success("Impact analysis complete: " + paths.length + " paths, " + endpointRows.length + " endpoints.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();
