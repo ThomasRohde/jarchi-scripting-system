@@ -311,6 +311,9 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
         var titleNote = dashView.createObject("note", MARGIN_LEFT, TITLE_Y, totalGridWidth, TITLE_HEIGHT);
         titleNote.setText(dashboardName);
         titleNote.borderType = BORDER_NONE;
+        titleNote.fontStyle = "bold";
+        titleNote.fontSize = 24;
+        titleNote.textAlignment = TEXT_ALIGNMENT.CENTER;
 
         // --- Place chart notes in a symmetric grid ---
         var chartNotes = [];
