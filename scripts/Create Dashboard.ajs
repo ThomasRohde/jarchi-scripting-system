@@ -87,8 +87,8 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
     var COLOR_DESC = "#666666";
 
     // Text alignment/position constants (ITextAlignment / ITextPosition)
-    var TEXT_ALIGN_LEFT = 0;
-    var TEXT_ALIGN_CENTER = 1;
+    var TEXT_ALIGN_LEFT = 1;
+    var TEXT_ALIGN_CENTER = 2;
     var TEXT_POS_CENTER = 1;
 
     // =========================================================================
