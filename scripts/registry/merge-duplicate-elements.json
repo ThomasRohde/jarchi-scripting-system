@@ -1,0 +1,28 @@
+{
+  "id": "cleanup.merge_duplicate_elements",
+  "title": "Merge Duplicate Elements",
+  "category": ["Cleanup"],
+  "order": 15,
+
+  "script": {
+    "path": "Merge Duplicate Elements.ajs"
+  },
+
+  "description": "Detects duplicate elements by type and name, lets you pick a canonical element per group, and merges relationships, view references, properties, and documentation from duplicates onto the canonical. Supports dry-run preview before applying.",
+  "tags": ["cleanup", "duplicate", "merge", "consolidate", "model-health", "dedup"],
+
+  "help": {
+    "markdown_path": "../help/merge-duplicate-elements.md"
+  },
+
+  "run": {
+    "danger_level": "high",
+    "confirm_message": "This script will merge duplicate elements, rewiring relationships and view references. Changes modify the model."
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

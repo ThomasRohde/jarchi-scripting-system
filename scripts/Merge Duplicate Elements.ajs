@@ -1,0 +1,666 @@
+/**
+ * @name Merge Duplicate Elements
+ * @description Detects duplicate elements (same type + normalized name), lets the user
+ * pick a canonical element per group, and merges relationships, view references, properties,
+ * and documentation from duplicates onto the canonical. Supports dry-run preview.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-15
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    var SWT = swtImports.SWT;
+    var Composite = swtImports.Composite;
+    var Label = swtImports.Label;
+    var Button = swtImports.Button;
+    var Group = swtImports.Group;
+    var Combo = swtImports.Combo;
+    var Table = swtImports.Table;
+    var TableItem = swtImports.TableItem;
+    var TableColumn = swtImports.TableColumn;
+    var GridDataFactory = swtImports.GridDataFactory;
+    var GridLayoutFactory = swtImports.GridLayoutFactory;
+    var IDialogConstants = swtImports.IDialogConstants;
+    var MessageDialog = swtImports.MessageDialog;
+    var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
+    var Point = swtImports.Point;
+    var Color = swtImports.Color;
+    var Display = swtImports.Display;
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    function displayName(el) {
+        var n = el.name;
+        return n && n.trim() ? n : "-- unnamed --";
+    }
+
+    function normalizeKey(name) {
+        return (name || "").trim().toLowerCase();
+    }
+
+    function javaStringArray(arr) {
+        var StringArray = Java.type("java.lang.String[]");
+        var result = new StringArray(arr.length);
+        for (var i = 0; i < arr.length; i++) result[i] = arr[i];
+        return result;
+    }
+
+    /** Get folder path for an element */
+    function folderPath(el) {
+        var parts = [];
+        try {
+            var parent = $(el).parent();
+            while (parent && parent.size && parent.size() > 0) {
+                var p = parent.first();
+                if (p && p.name) parts.unshift(p.name);
+                parent = $(p).parent();
+            }
+        } catch (e) { /* ignore */ }
+        return parts.join("/") || "(root)";
+    }
+
+    /** Navigate to element in model tree */
+    function navigateToElement(id) {
+        try {
+            var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+            var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+            var StructuredSelection = Java.type("org.eclipse.jface.viewers.StructuredSelection");
+            var PlatformUI = Java.type("org.eclipse.ui.PlatformUI");
+            var eObject = null;
+            var models = IEditorModelManager.INSTANCE.getModels();
+            for (var m = 0; m < models.size(); m++) {
+                eObject = ArchimateModelUtils.getObjectByID(models.get(m), id);
+                if (eObject) break;
+            }
+            if (!eObject) return;
+            var page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+            var treeView = page.showView("com.archimatetool.editor.treeModelView");
+            treeView.getViewer().setSelection(new StructuredSelection(eObject), true);
+        } catch (e) {
+            log.error("Navigation failed: " + e.toString());
+        }
+    }
+
+    // =========================================================================
+    // Duplicate detection
+    // =========================================================================
+
+    function detectDuplicates(includeProps) {
+        var groups = {};
+        var totalElements = 0;
+
+        $("element").each(function (element) {
+            totalElements++;
+            var name = normalizeKey(element.name);
+            if (name === "") return;
+
+            var key = element.type + "|" + name;
+            if (includeProps && includeProps.length > 0) {
+                for (var p = 0; p < includeProps.length; p++) {
+                    var pv = element.prop(includeProps[p]);
+                    key += "|" + (pv || "");
+                }
+            }
+
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(element);
+        });
+
+        // Filter to groups with 2+ members
+        var result = [];
+        var keys = Object.keys(groups);
+        for (var k = 0; k < keys.length; k++) {
+            if (groups[keys[k]].length > 1) {
+                var members = groups[keys[k]];
+                // Sort: most views first, then most rels, as canonical suggestion
+                members.sort(function (a, b) {
+                    var va = $(a).viewRefs().size();
+                    var vb = $(b).viewRefs().size();
+                    if (vb !== va) return vb - va;
+                    return $(b).rels().size() - $(a).rels().size();
+                });
+                result.push({
+                    key: keys[k],
+                    members: members,
+                    canonicalIndex: 0  // first (most-used) is default canonical
+                });
+            }
+        }
+
+        // Sort groups by type then name
+        result.sort(function (a, b) {
+            return a.key.localeCompare(b.key);
+        });
+
+        return { groups: result, totalElements: totalElements };
+    }
+
+    // =========================================================================
+    // Merge logic
+    // =========================================================================
+
+    /**
+     * Build a dry-run summary describing what the merge would do.
+     * @returns {Object} { summary: string, actions: Array }
+     */
+    function buildMergePreview(groups, mergePolicy) {
+        var totalRewired = 0;
+        var totalViewRefs = 0;
+        var totalPropsMerged = 0;
+        var totalDocAppended = 0;
+        var totalDeleted = 0;
+        var actions = [];
+
+        for (var g = 0; g < groups.length; g++) {
+            var group = groups[g];
+            var canonical = group.members[group.canonicalIndex];
+
+            for (var m = 0; m < group.members.length; m++) {
+                if (m === group.canonicalIndex) continue;
+                var dup = group.members[m];
+
+                // Relationships to rewire
+                var rels = $(dup).rels();
+                var relCount = rels.size();
+                totalRewired += relCount;
+
+                // View references to reassign
+                var objRefs = $(dup).objectRefs();
+                var objCount = objRefs.size();
+                totalViewRefs += objCount;
+
+                // Properties to merge
+                var propKeys = dup.prop();
+                if (propKeys) {
+                    for (var pk = 0; pk < propKeys.length; pk++) {
+                        if (mergePolicy === "fill" && canonical.prop(propKeys[pk])) continue;
+                        totalPropsMerged++;
+                    }
+                }
+
+                // Documentation
+                var dupDoc = dup.documentation;
+                if (dupDoc && dupDoc.trim()) {
+                    var canonDoc = canonical.documentation || "";
+                    if (dupDoc.trim() !== canonDoc.trim()) {
+                        totalDocAppended++;
+                    }
+                }
+
+                totalDeleted++;
+                actions.push({
+                    group: displayName(canonical) + " (" + canonical.type + ")",
+                    duplicate: dup.id,
+                    rels: relCount,
+                    views: objCount
+                });
+            }
+        }
+
+        var lines = [];
+        lines.push("Merge Preview:");
+        lines.push("  Groups to merge: " + groups.length);
+        lines.push("  Duplicates to remove: " + totalDeleted);
+        lines.push("  Relationships to rewire: " + totalRewired);
+        lines.push("  View references to reassign: " + totalViewRefs);
+        lines.push("  Properties to merge: " + totalPropsMerged);
+        lines.push("  Documentation segments to append: " + totalDocAppended);
+
+        return {
+            summary: lines.join("\n"),
+            totalDeleted: totalDeleted,
+            totalRewired: totalRewired,
+            totalViewRefs: totalViewRefs,
+            totalPropsMerged: totalPropsMerged,
+            totalDocAppended: totalDocAppended,
+            actions: actions
+        };
+    }
+
+    /**
+     * Look up a raw EMF EObject by its Archi ID.
+     * Searches all loaded models via IEditorModelManager.
+     */
+    function getRawEObject(id) {
+        var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
+        var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
+        var models = IEditorModelManager.INSTANCE.getModels();
+        for (var i = 0; i < models.size(); i++) {
+            var obj = ArchimateModelUtils.getObjectByID(models.get(i), id);
+            if (obj) return obj;
+        }
+        return null;
+    }
+
+    /**
+     * Execute the merge operation.
+     * Uses raw EMF API for relationship rewiring and view reference reassignment
+     * because jArchi proxy properties (rel.source, rel.target, objRef.concept) are read-only.
+     */
+    function executeMerge(groups, mergePolicy, docDelimiter) {
+        var stats = { rewired: 0, viewRefs: 0, props: 0, docs: 0, deleted: 0 };
+
+        for (var g = 0; g < groups.length; g++) {
+            var group = groups[g];
+            var canonical = group.members[group.canonicalIndex];
+            var rawCanonical = getRawEObject(canonical.id);
+
+            if (!rawCanonical) {
+                log.warn("  Could not find raw EObject for canonical " + canonical.id + " — skipping group.");
+                continue;
+            }
+
+            for (var m = 0; m < group.members.length; m++) {
+                if (m === group.canonicalIndex) continue;
+                var dup = group.members[m];
+
+                // 1. Rewire relationships via raw EMF API (rel.source/target are read-only on proxy)
+                $(dup).rels().each(function (rel) {
+                    try {
+                        var rawRel = getRawEObject(rel.id);
+                        if (!rawRel) {
+                            log.warn("  Could not find raw EObject for relationship " + rel.id);
+                            return;
+                        }
+                        if (rel.source.id === dup.id) {
+                            rawRel.setSource(rawCanonical);
+                        }
+                        if (rel.target.id === dup.id) {
+                            rawRel.setTarget(rawCanonical);
+                        }
+                        stats.rewired++;
+                    } catch (e) {
+                        log.warn("  Could not rewire relationship " + rel.id + ": " + e.toString());
+                    }
+                });
+
+                // 2. Reassign view object concept references via raw EMF API
+                //    (objRef.concept is read-only on DiagramModelObjectProxy)
+                $(dup).objectRefs().each(function (objRef) {
+                    try {
+                        var rawDiagObj = getRawEObject(objRef.id);
+                        if (!rawDiagObj) {
+                            log.warn("  Could not find raw EObject for diagram object " + objRef.id);
+                            return;
+                        }
+                        rawDiagObj.setArchimateElement(rawCanonical);
+                        stats.viewRefs++;
+                    } catch (e) {
+                        log.warn("  Could not reassign view reference: " + e.toString());
+                    }
+                });
+
+                // 3. Merge properties
+                var propKeys = dup.prop();
+                if (propKeys) {
+                    for (var pk = 0; pk < propKeys.length; pk++) {
+                        var key = propKeys[pk];
+                        var dupVal = dup.prop(key);
+                        var canonVal = canonical.prop(key);
+
+                        if (mergePolicy === "canonical" && canonVal) {
+                            // Canonical wins — skip if canonical already has this property
+                            continue;
+                        }
+                        if (mergePolicy === "fill" && canonVal) {
+                            // Fill-missing — skip if canonical already has a value
+                            continue;
+                        }
+                        // Set on canonical (canonical-wins mode overwrites, fill mode only fills gaps)
+                        canonical.prop(key, dupVal);
+                        stats.props++;
+                    }
+                }
+
+                // 4. Append documentation
+                var dupDoc = dup.documentation;
+                if (dupDoc && dupDoc.trim()) {
+                    var canonDoc = canonical.documentation || "";
+                    if (dupDoc.trim() !== canonDoc.trim()) {
+                        if (canonDoc.trim()) {
+                            canonical.documentation = canonDoc + docDelimiter + dupDoc;
+                        } else {
+                            canonical.documentation = dupDoc;
+                        }
+                        stats.docs++;
+                    }
+                }
+
+                // 5. Delete duplicate
+                try {
+                    dup.delete();
+                    stats.deleted++;
+                } catch (e) {
+                    log.warn("  Could not delete duplicate " + dup.id + ": " + e.toString());
+                }
+            }
+        }
+
+        return stats;
+    }
+
+    // =========================================================================
+    // Main
+    // =========================================================================
+
+    try {
+        requireModel();
+        log.header("Merge Duplicate Elements");
+
+        // Detect duplicates with default key (type + normalized name)
+        var detection = detectDuplicates([]);
+        var groups = detection.groups;
+
+        if (groups.length === 0) {
+            log.success("No duplicate elements found among " + detection.totalElements + " elements.");
+            MessageDialog.openInformation(shell, "Merge Duplicate Elements",
+                "No duplicate elements found.\n\nAll " + detection.totalElements + " element names are unique within their type.");
+            return;
+        }
+
+        var totalDuplicates = 0;
+        for (var g = 0; g < groups.length; g++) {
+            totalDuplicates += groups[g].members.length;
+        }
+        log.info("Found " + groups.length + " duplicate groups (" + totalDuplicates + " elements).");
+
+        // =================================================================
+        // Build flat table rows for display
+        // =================================================================
+
+        var COLUMNS = [
+            ["",        30,  "canonical"],  // radio marker
+            ["Type",   110,  "type"],
+            ["Name",   180,  "name"],
+            ["Views",   55,  "views"],
+            ["Rels",    55,  "rels"],
+            ["Folder", 160,  "folder"],
+            ["ID",     160,  "id"]
+        ];
+
+        var rows = [];
+        for (var g = 0; g < groups.length; g++) {
+            var group = groups[g];
+            for (var m = 0; m < group.members.length; m++) {
+                var el = group.members[m];
+                rows.push({
+                    groupIndex: g,
+                    memberIndex: m,
+                    isCanonical: m === group.canonicalIndex,
+                    type: el.type,
+                    name: displayName(el),
+                    views: $(el).viewRefs().size(),
+                    rels: $(el).rels().size(),
+                    folder: folderPath(el),
+                    id: el.id
+                });
+            }
+        }
+
+        // =================================================================
+        // Dialog
+        // =================================================================
+
+        var tableWidget = null;
+        var altColor = null;
+        var boldFont = null;
+        var mergePolicy = "fill";       // "canonical" or "fill"
+        var docDelimiter = "\n\n---\n\n";
+        var mergePolicyCombo = null;
+        var dialogResult = false;
+
+        function populateTable() {
+            if (!tableWidget || tableWidget.isDisposed()) return;
+            tableWidget.removeAll();
+
+            var lastGroup = -1;
+            var colorToggle = false;
+
+            for (var i = 0; i < rows.length; i++) {
+                var r = rows[i];
+                if (r.groupIndex !== lastGroup) {
+                    colorToggle = !colorToggle;
+                    lastGroup = r.groupIndex;
+                }
+
+                var item = new TableItem(tableWidget, SWT.NONE);
+                item.setText(javaStringArray([
+                    r.isCanonical ? "\u2713" : "",
+                    r.type,
+                    r.name,
+                    String(r.views),
+                    String(r.rels),
+                    r.folder,
+                    r.id
+                ]));
+                item.setData("rowIndex", i);
+                if (r.isCanonical && boldFont) {
+                    item.setFont(boldFont);
+                }
+                if (colorToggle && altColor) {
+                    item.setBackground(altColor);
+                }
+            }
+        }
+
+        var myDialog = {
+            dialog: new ExtendedTitleAreaDialog(shell, {
+                configureShell: function (newShell) {
+                    Java.super(myDialog.dialog).configureShell(newShell);
+                    newShell.setText("Merge Duplicate Elements");
+                    newShell.setMinimumSize(850, 500);
+                },
+
+                isResizable: function () {
+                    return true;
+                },
+
+                createDialogArea: function (parent) {
+                    var area = Java.super(myDialog.dialog).createDialogArea(parent);
+                    var display = Display.getCurrent();
+                    altColor = new Color(display, 240, 240, 248);
+
+                    // Create bold font for canonical rows
+                    var sysFont = display.getSystemFont();
+                    var fd = sysFont.getFontData();
+                    fd[0].setStyle(SWT.BOLD);
+                    boldFont = new swtImports.Font(display, fd[0]);
+
+                    myDialog.dialog.setTitle("Merge Duplicate Elements");
+                    myDialog.dialog.setMessage(
+                        groups.length + " duplicate group" + (groups.length !== 1 ? "s" : "") +
+                        " found (" + totalDuplicates + " elements). Select canonical element per group, then merge."
+                    );
+
+                    var container = new Composite(area, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().margins(10, 8).applyTo(container);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+
+                    // Instructions
+                    var instrLabel = new Label(container, SWT.WRAP);
+                    instrLabel.setText(
+                        "The element marked \u2713 (bold) in each group is the canonical — all others will be merged into it. " +
+                        "Click a row to set it as canonical. Double-click to reveal in model tree."
+                    );
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(instrLabel);
+
+                    // Table
+                    tableWidget = new Table(container, SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+                    tableWidget.setHeaderVisible(true);
+                    tableWidget.setLinesVisible(true);
+                    GridDataFactory.fillDefaults().grab(true, true).hint(SWT.DEFAULT, 350).applyTo(tableWidget);
+
+                    for (var c = 0; c < COLUMNS.length; c++) {
+                        var col = new TableColumn(tableWidget, c >= 3 && c <= 4 ? SWT.RIGHT : SWT.NONE);
+                        col.setText(COLUMNS[c][0]);
+                        col.setWidth(COLUMNS[c][1]);
+                    }
+
+                    populateTable();
+
+                    // Single click: set canonical
+                    tableWidget.addListener(SWT.Selection, function () {
+                        var sel = tableWidget.getSelection();
+                        if (sel.length === 0) return;
+                        var idx = sel[0].getData("rowIndex");
+                        if (idx === null || idx === undefined) return;
+                        var row = rows[idx];
+                        var group = groups[row.groupIndex];
+
+                        // Update canonical for this group
+                        group.canonicalIndex = row.memberIndex;
+
+                        // Update all rows in this group
+                        for (var i = 0; i < rows.length; i++) {
+                            if (rows[i].groupIndex === row.groupIndex) {
+                                rows[i].isCanonical = (rows[i].memberIndex === row.memberIndex);
+                            }
+                        }
+                        populateTable();
+                    });
+
+                    // Double-click: navigate to element
+                    tableWidget.addListener(SWT.MouseDoubleClick, function () {
+                        var sel = tableWidget.getSelection();
+                        if (sel.length === 0) return;
+                        var idx = sel[0].getData("rowIndex");
+                        if (idx === null || idx === undefined) return;
+                        navigateToElement(rows[idx].id);
+                    });
+
+                    // Options panel
+                    var optGroup = new swtImports.Group(container, SWT.NONE);
+                    optGroup.setText("Merge Options");
+                    GridLayoutFactory.fillDefaults().numColumns(4).margins(8, 6).applyTo(optGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(optGroup);
+
+                    var policyLabel = new Label(optGroup, SWT.NONE);
+                    policyLabel.setText("Property merge:");
+
+                    mergePolicyCombo = new Combo(optGroup, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    mergePolicyCombo.setItems(javaStringArray([
+                        "Fill missing (keep canonical, add gaps)",
+                        "Canonical wins (ignore duplicate properties)"
+                    ]));
+                    mergePolicyCombo.select(0);
+
+                    var delimLabel = new Label(optGroup, SWT.NONE);
+                    delimLabel.setText("Doc delimiter:");
+
+                    var delimCombo = new Combo(optGroup, SWT.READ_ONLY | SWT.DROP_DOWN);
+                    delimCombo.setItems(javaStringArray([
+                        "--- (horizontal rule)",
+                        "Empty line",
+                        "No append"
+                    ]));
+                    delimCombo.select(0);
+                    myDialog._delimCombo = delimCombo;
+
+                    // Footer
+                    var footerLabel = new Label(container, SWT.NONE);
+                    footerLabel.setText(
+                        "Click row = set canonical  |  Double-click = reveal in tree  |  Merge = preview then apply"
+                    );
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(footerLabel);
+
+                    return area;
+                },
+
+                createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, IDialogConstants.PROCEED_ID, "Merge...", false);
+                    myDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", true);
+                },
+
+                buttonPressed: function (buttonId) {
+                    if (buttonId === IDialogConstants.PROCEED_ID) {
+                        // Read merge options
+                        var policyIdx = mergePolicyCombo.getSelectionIndex();
+                        mergePolicy = policyIdx === 1 ? "canonical" : "fill";
+
+                        var delimIdx = myDialog._delimCombo.getSelectionIndex();
+                        if (delimIdx === 0) docDelimiter = "\n\n---\n\n";
+                        else if (delimIdx === 1) docDelimiter = "\n\n";
+                        else docDelimiter = null;  // no append
+
+                        dialogResult = true;
+                        Java.super(myDialog.dialog).okPressed();
+                    } else {
+                        Java.super(myDialog.dialog).cancelPressed();
+                    }
+                },
+
+                close: function () {
+                    if (altColor && !altColor.isDisposed()) altColor.dispose();
+                    if (boldFont && !boldFont.isDisposed()) boldFont.dispose();
+                    return Java.super(myDialog.dialog).close();
+                },
+
+                getInitialSize: function () {
+                    return new Point(900, 650);
+                }
+            })
+        };
+
+        myDialog.dialog.setHelpAvailable(false);
+        myDialog.dialog.open();
+
+        if (!dialogResult) {
+            log.warn("Merge cancelled by user.");
+            return;
+        }
+
+        // =================================================================
+        // Dry run preview
+        // =================================================================
+
+        var preview = buildMergePreview(groups, mergePolicy);
+        log.info(preview.summary);
+
+        var confirmMsg = preview.summary +
+            "\n\nThis operation modifies the model. Proceed with merge?";
+
+        if (!window.confirm(confirmMsg)) {
+            log.warn("Merge aborted after preview.");
+            return;
+        }
+
+        // =================================================================
+        // Execute merge
+        // =================================================================
+
+        log.info("Executing merge...");
+        var stats = executeMerge(groups, mergePolicy, docDelimiter);
+
+        log.success("Merge complete:");
+        log.detail("  Relationships rewired: " + stats.rewired);
+        log.detail("  View references reassigned: " + stats.viewRefs);
+        log.detail("  Properties merged: " + stats.props);
+        log.detail("  Documentation segments appended: " + stats.docs);
+        log.detail("  Duplicates deleted: " + stats.deleted);
+
+        MessageDialog.openInformation(shell, "Merge Complete",
+            "Merge completed successfully.\n\n" +
+            "Duplicates deleted: " + stats.deleted + "\n" +
+            "Relationships rewired: " + stats.rewired + "\n" +
+            "View references reassigned: " + stats.viewRefs + "\n" +
+            "Properties merged: " + stats.props + "\n" +
+            "Documentation appended: " + stats.docs);
+
+        log.success("Merge Duplicate Elements complete.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

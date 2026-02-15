@@ -202,11 +202,16 @@ load(__DIR__ + "lib/requireModel.js");
             // Build element lookup by ID and by name
             var elemById = {};
             var elemByName = {};
+            var duplicateNames = {};
             $("element").each(function (el) {
                 elemById[el.id] = el;
                 if (el.name && el.name.trim()) {
                     var key = el.name.trim().toLowerCase();
-                    if (!elemByName[key]) elemByName[key] = el;
+                    if (!elemByName[key]) {
+                        elemByName[key] = el;
+                    } else {
+                        duplicateNames[key] = true;
+                    }
                 }
             });
 
@@ -218,9 +223,14 @@ load(__DIR__ + "lib/requireModel.js");
                 // Try by ID lookup
                 var byId = $("#" + value);
                 if (byId.size() > 0) return byId.first();
-                // Try by name
+                // Try by name (warn if ambiguous)
                 var key = value.toLowerCase();
-                if (elemByName[key]) return elemByName[key];
+                if (elemByName[key]) {
+                    if (duplicateNames[key]) {
+                        log.warn("Ambiguous name '" + value + "': multiple elements share this name. Using first match. Use element IDs for precision.");
+                    }
+                    return elemByName[key];
+                }
                 return null;
             }
 

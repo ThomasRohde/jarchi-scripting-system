@@ -70,6 +70,7 @@
         try { delete globalThis.__apiScriptOutput; } catch (_e1) {}
         try { delete globalThis.__apiScriptResult; } catch (_e2) {}
         try { delete globalThis.__apiScriptsDir; } catch (_e3) {}
+        try { delete globalThis.__apiServerModelId; } catch (_e3b) {}
         try { delete globalThis.__origConsoleLog; } catch (_e4) {}
         try { delete globalThis.__origConsolePrint; } catch (_e5) {}
         try { delete globalThis.__origConsolePrintln; } catch (_e6) {}
@@ -162,6 +163,10 @@
             globalThis.__apiScriptOutput = [];
             globalThis.__apiScriptResult = { files: [], value: null };
             globalThis.__apiScriptsDir = scriptsDir;
+
+            // Store the server's bound model ID so preamble helpers target the
+            // correct model, not just getLoadedModels().get(0).
+            globalThis.__apiServerModelId = serverState.modelRef ? serverState.modelRef.getId() : null;
 
             // Save original console methods on globalThis BEFORE the wrapper file
             // is loaded. Inside the wrapper, `var console = {...}` is hoisted,
@@ -300,12 +305,20 @@
                     "// These helpers provide model access without requiring UI selection context",
                     "",
                     "/**",
-                    " * Get the first loaded model. Use this instead of $() which requires UI context.",
-                    " * @returns {Object|null} The first loaded model, or null if no model is loaded.",
+                    " * Get the server's bound model. Matches by model ID stored on globalThis",
+                    " * so multi-model sessions target the correct model.",
+                    " * @returns {Object|null} The server's model, or null if not found.",
                     " */",
                     "function getModel() {",
                     "    var models = $.model.getLoadedModels();",
-                    "    return models && models.size() > 0 ? models.get(0) : null;",
+                    "    if (!models || models.size() === 0) return null;",
+                    "    var targetId = globalThis.__apiServerModelId;",
+                    "    if (targetId) {",
+                    "        for (var i = 0; i < models.size(); i++) {",
+                    "            if (models.get(i).getId() === targetId) return models.get(i);",
+                    "        }",
+                    "    }",
+                    "    return models.get(0);",
                     "}",
                     "",
                     "/**",
@@ -377,12 +390,19 @@
                     "    return results;",
                     "}",
                     "",
-                    "// Auto-bind $ to the loaded model so $() selectors work",
+                    "// Auto-bind $ to the server's model so $() selectors work",
                     "// without requiring UI selection context.",
                     "var __autoModel = (function() {",
                     "    try {",
                     "        var models = $.model.getLoadedModels();",
-                    "        return models && models.size() > 0 ? models.get(0) : null;",
+                    "        if (!models || models.size() === 0) return null;",
+                    "        var targetId = globalThis.__apiServerModelId;",
+                    "        if (targetId) {",
+                    "            for (var i = 0; i < models.size(); i++) {",
+                    "                if (models.get(i).getId() === targetId) return models.get(i);",
+                    "            }",
+                    "        }",
+                    "        return models.get(0);",
                     "    } catch(e) { return null; }",
                     "})();",
                     "if (__autoModel) {",
@@ -429,12 +449,20 @@
                 // Execute script using load()
                 // GraalVM's load() returns the completion value of the last expression,
                 // so we capture it to populate the result field.
+                // Save $ before load() — the preamble wraps it, and load() runs in
+                // global scope, so without restoring it each call compounds wrappers.
+                var __saved$ = typeof $ !== "undefined" ? $ : undefined;
                 var execError = null;
                 var loadResult;
                 try {
                     loadResult = load(tempFile.getAbsolutePath());
                 } catch (e) {
                     execError = e;
+                } finally {
+                    // Restore original $ to prevent cross-request side effects
+                    if (__saved$ !== undefined) {
+                        try { $ = __saved$; } catch (_e) {}
+                    }
                 }
                 
                 // Capture load() return value if script didn't explicitly set result

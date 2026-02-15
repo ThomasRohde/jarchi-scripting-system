@@ -98,7 +98,7 @@
         var typeFilter = criteria.type ? criteria.type.toLowerCase() : null;
         var namePattern = criteria.nameRegex || null;
         var propertyKey = criteria.propertyKey || null;
-        var propertyValue = criteria.propertyValue || null;
+        var propertyValue = criteria.propertyValue != null ? criteria.propertyValue : null;
         var includeRelationships = criteria.includeRelationships !== false;
         var limit = criteria.limit || 1000;
 
@@ -832,7 +832,7 @@
                     nameRegex: nameRegex,
                     caseSensitive: caseSensitive,
                     propertyKey: body.propertyKey || null,
-                    propertyValue: body.propertyValue || null,
+                    propertyValue: body.propertyValue != null ? body.propertyValue : null,
                     includeRelationships: body.includeRelationships !== false,
                     limit: limit
                 };
