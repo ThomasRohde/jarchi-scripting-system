@@ -31,17 +31,21 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
     // =========================================================================
 
     var COLS = 4;
-    var CHART_WIDTH = 500;
-    var CHART_HEIGHT = 350;
-    var COL_GAP = 30;
-    var MARGIN_LEFT = 50;
-    var TITLE_Y = 25;
-    var TITLE_HEIGHT = 70;
-    var SUBTITLE_HEIGHT = 28;
-    var SECTION_HEADER_HEIGHT = 32;
-    var DESC_HEIGHT = 28;
-    var DESC_CHART_GAP = 4;
-    var SECTION_GAP = 45;
+    var CHART_WIDTH = 480;
+    var CHART_HEIGHT = 320;
+    var COL_GAP = 20;
+    var ROW_GAP = 60;
+    var MARGIN_LEFT = 20;
+    var TOTAL_WIDTH = (COLS * CHART_WIDTH) + ((COLS - 1) * COL_GAP) + (2 * MARGIN_LEFT); // Calculated total width
+    
+    // Y Positions calculated dynamically, but starting offsets:
+    var TITLE_Y = 20;
+    var TITLE_HEIGHT = 50;
+    var SUBTITLE_HEIGHT = 30;
+    var KPI_HEIGHT = 100; // New KPI section
+    var SECTION_HEADER_HEIGHT = 40;
+    var SECTION_PADDING = 20;
+    var INNER_PAD = 10; // Inset for children inside bordered groups so they don't cover borders
 
     // =========================================================================
     // Dashboard sections — logical grouping with descriptions
@@ -81,15 +85,18 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
     // Style constants
     // =========================================================================
 
-    var COLOR_TITLE = "#1a1a2e";
-    var COLOR_SUBTITLE = "#555555";
-    var COLOR_SECTION = "#2c3e50";
-    var COLOR_DESC = "#666666";
+    // Palette: Midnight Slate
+    var COLOR_BG = "#F5F7FA";
+    var COLOR_SECTION_BG = "#FFFFFF";
+    var COLOR_TITLE = "#2C3E50";
+    var COLOR_SUBTITLE = "#7F8C8D";
+    var COLOR_SECTION_HEADER = "#2980B9";
+    var COLOR_DESC = "#7F8C8D";
+    var COLOR_KPI_VALUE = "#27AE60";
+    var COLOR_KPI_LABEL = "#95A5A6";
 
-    // Text alignment/position constants (ITextAlignment / ITextPosition)
-    var TEXT_ALIGN_LEFT = 1;
+    // Text alignment constants: ITextAlignment — LEFT=1, CENTER=2, RIGHT=4
     var TEXT_ALIGN_CENTER = 2;
-    var TEXT_POS_CENTER = 1;
 
     // =========================================================================
     // Random value generators for each property
@@ -169,8 +176,11 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
         return JPath.get(tmpDir, "jarchi-chart-" + noteId + ".png").toString();
     }
 
-    // BORDER.NONE constant for notes
+    // Border constants
+    var BORDER_DOGEAR = 0;
+    var BORDER_RECTANGLE = 1;
     var BORDER_NONE = 2;
+    var BORDER_TABBED = 0; // For Groups
 
     // =========================================================================
     // Sample elements for types that may not exist in the model
@@ -347,7 +357,7 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
         titleNote.setText(dashboardName);
         titleNote.borderType = BORDER_NONE;
         titleNote.fontStyle = "bold";
-        titleNote.fontSize = 26;
+        titleNote.fontSize = 28;
         titleNote.fontColor = COLOR_TITLE;
         titleNote.textAlignment = TEXT_ALIGN_CENTER;
 
@@ -361,72 +371,134 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
         subtitleNote.fontColor = COLOR_SUBTITLE;
         subtitleNote.textAlignment = TEXT_ALIGN_CENTER;
 
+        var cursorY = subtitleY + SUBTITLE_HEIGHT + 30;
+
+        // --- KPI Row ---
+        // We'll add 4 simple KPI cards
+        var kpiWidth = Math.floor((totalGridWidth - (3 * COL_GAP)) / 4);
+        var uniquePropNames = {};
+        $("element").each(function (el) {
+            var keys = el.prop();
+            if (keys) for (var i = 0; i < keys.length; i++) uniquePropNames[keys[i]] = true;
+        });
+
+        var kpis = [
+            { label: "Total Elements", value: $("element").size() },
+            { label: "Relationships", value: $("relationship").size() },
+            { label: "Views", value: $("view").size() },
+            { label: "Properties", value: Object.keys(uniquePropNames).length }
+        ];
+
+        for (var k = 0; k < kpis.length; k++) {
+            var kpiX = MARGIN_LEFT + k * (kpiWidth + COL_GAP);
+            
+            // KPI Background (Group)
+            var kpiGroup = dashView.createObject("group", kpiX, cursorY, kpiWidth, KPI_HEIGHT);
+            kpiGroup.name = ""; // No header for the group visual
+            kpiGroup.fillColor = "#FFFFFF";
+            kpiGroup.borderType = BORDER_RECTANGLE;
+            
+            // Label
+            var labelNote = kpiGroup.createObject("note", INNER_PAD, 15, kpiWidth - 2 * INNER_PAD, 30);
+            labelNote.setText(kpis[k].label.toUpperCase());
+            labelNote.borderType = BORDER_NONE;
+            labelNote.fontColor = COLOR_KPI_LABEL;
+            labelNote.fontSize = 11;
+            labelNote.fontStyle = "bold";
+            labelNote.textAlignment = TEXT_ALIGN_CENTER;
+
+            // Value
+            var valNote = kpiGroup.createObject("note", INNER_PAD, 45, kpiWidth - 2 * INNER_PAD, 50);
+            valNote.setText(String(kpis[k].value));
+            valNote.borderType = BORDER_NONE;
+            valNote.fontColor = COLOR_KPI_VALUE;
+            valNote.fontSize = 28;
+            valNote.fontStyle = "bold";
+            valNote.textAlignment = TEXT_ALIGN_CENTER;
+        }
+
+        cursorY += KPI_HEIGHT + ROW_GAP;
+
         // --- Place sections, descriptions, and chart notes ---
         var chartNotes = [];
-        var cursorY = subtitleY + SUBTITLE_HEIGHT + 20;
 
         for (var s = 0; s < DASHBOARD_SECTIONS.length; s++) {
             var section = DASHBOARD_SECTIONS[s];
+            
+            // Calculate section height: Header + (Rows * (ChartHeight + DescHeight + Gaps)) + Padding
+            // We assume 1 row per section for simplicity based on the 4-col layout and 4 charts per section
+            var rows = Math.ceil(section.charts.length / COLS);
+            // Height calculation update: Header + Padding + (Rows * (ChartHeight + DescGap + DescHeight + ChartGap))
+            var rowHeight = CHART_HEIGHT + 60; 
+            var sectionHeight = SECTION_HEADER_HEIGHT + SECTION_PADDING + 
+                                rows * rowHeight + SECTION_PADDING;
 
-            // Section header
-            var sectionNote = dashView.createObject("note", MARGIN_LEFT, cursorY, totalGridWidth, SECTION_HEADER_HEIGHT);
-            sectionNote.setText(section.title.toUpperCase());
-            sectionNote.borderType = BORDER_NONE;
-            sectionNote.fontStyle = "bold";
-            sectionNote.fontSize = 13;
-            sectionNote.fontColor = COLOR_SECTION;
-            sectionNote.textAlignment = TEXT_ALIGN_LEFT;
-            sectionNote.textPosition = TEXT_POS_CENTER;
-            cursorY += SECTION_HEADER_HEIGHT + 6;
+            // Section Container (Group)
+            var sectionGroup = dashView.createObject("group", MARGIN_LEFT, cursorY, totalGridWidth, sectionHeight);
+            sectionGroup.name = "  " + section.title.toUpperCase(); // Text in group header
+            sectionGroup.fontStyle = "bold";
+            sectionGroup.fontSize = 14;
+            sectionGroup.fontColor = COLOR_SECTION_HEADER;
+            sectionGroup.fillColor = COLOR_SECTION_BG;
+            sectionGroup.borderType = BORDER_RECTANGLE;
+            
+            // We can add objects inside the group using group.createObject
+            var contentStartY = SECTION_HEADER_HEIGHT + SECTION_PADDING;
 
-            // Description notes (one per chart, side by side)
-            for (var c = 0; c < section.charts.length; c++) {
-                var chartDef = section.charts[c];
-                var col = c % COLS;
-                var x = MARGIN_LEFT + col * (CHART_WIDTH + COL_GAP);
+            // Calculate chart width with padding so children don't cover group borders
+            var chartAreaWidth = totalGridWidth - 2 * INNER_PAD;
+            var sectionChartWidth = Math.floor((chartAreaWidth - (COLS - 1) * COL_GAP) / COLS);
 
-                var descNote = dashView.createObject("note", x, cursorY, CHART_WIDTH, DESC_HEIGHT);
-                descNote.setText(chartDef.desc);
-                descNote.borderType = BORDER_NONE;
-                descNote.fontSize = 12;
-                descNote.fontStyle = "italic";
-                descNote.fontColor = COLOR_DESC;
-                descNote.textAlignment = TEXT_ALIGN_CENTER;
-                descNote.textPosition = TEXT_POS_CENTER;
-            }
-            cursorY += DESC_HEIGHT + DESC_CHART_GAP;
-
-            // Chart notes
             for (var c = 0; c < section.charts.length; c++) {
                 var chartDef = section.charts[c];
                 var tmpl = templateMap[chartDef.id];
                 if (!tmpl) continue;
 
                 var col = c % COLS;
-                var x = MARGIN_LEFT + col * (CHART_WIDTH + COL_GAP);
+                var row = Math.floor(c / COLS);
+                var chartX = INNER_PAD + col * (sectionChartWidth + COL_GAP);
+                var chartY = contentStartY + row * rowHeight;
+
+                // Chart Description
+                var descNote = sectionGroup.createObject("note", chartX, chartY, sectionChartWidth, 30);
+                descNote.setText(chartDef.desc);
+                descNote.borderType = BORDER_NONE;
+                descNote.fontSize = 10;
+                descNote.fontStyle = "italic";
+                descNote.fontColor = COLOR_DESC;
+                descNote.textAlignment = TEXT_ALIGN_CENTER;
+
+                // Chart Box
+                var chartContentY = chartY + 30;
 
                 var definition = chartDefinitions.createDefinition(tmpl.id, {
                     title: tmpl.chartConfig.title,
-                    width: CHART_WIDTH,
+                    width: sectionChartWidth,
                     height: CHART_HEIGHT,
                     scope: "model"
                 });
 
-                // Disable in-chart title — the description note above serves as the label
+                // Disable in-chart title
                 if (definition.chartOptions && definition.chartOptions.plugins &&
                     definition.chartOptions.plugins.title) {
                     definition.chartOptions.plugins.title.display = false;
                 }
 
-                var noteObj = dashView.createObject("note", x, cursorY, CHART_WIDTH, CHART_HEIGHT);
+                // Allow legend to be larger if needed
+                if (definition.chartOptions && definition.chartOptions.plugins &&
+                    definition.chartOptions.plugins.legend) {
+                     definition.chartOptions.plugins.legend.position = 'bottom';
+                }
+
+                var noteObj = sectionGroup.createObject("note", chartX, chartContentY, sectionChartWidth, CHART_HEIGHT);
                 noteObj.setText(definition.title);
                 noteObj.prop("chart-definition", JSON.stringify(definition));
-                noteObj.borderType = BORDER_NONE;
+                noteObj.borderType = BORDER_NONE; // Clean look
 
                 chartNotes.push({ note: noteObj, definition: definition });
                 log.detail("  Placed: " + definition.title);
             }
-            cursorY += CHART_HEIGHT + SECTION_GAP;
+            cursorY += sectionHeight + ROW_GAP;
         }
 
         // --- Render all charts ---
