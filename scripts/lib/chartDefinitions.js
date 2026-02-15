@@ -1,6 +1,6 @@
 /**
  * @module chartDefinitions
- * @description Template data layer for chart definitions. Provides 6 built-in
+ * @description Template data layer for chart definitions. Provides 12 built-in
  * EA-relevant chart templates plus JSON file persistence for user modifications.
  * Each template defines the chart type, data source configuration, and which
  * model properties to create/query.
@@ -31,6 +31,16 @@
     var PALETTE_DUAL = ["rgba(78,121,167,0.35)", "rgba(225,87,89,0.35)"];
     var PALETTE_DUAL_BORDER = ["#4E79A7", "#E15759"];
 
+    var PALETTE_LAYER = [
+        "#D4A017", "#EDC948", "#4E79A7", "#59A14F",
+        "#B07AA1", "#FF9DA7", "#BAB0AC"
+    ];
+
+    var PALETTE_DIVERGING = [
+        "#2166AC", "#4393C3", "#92C5DE", "#D1E5F0", "#F7F7F7",
+        "#FDDBC7", "#F4A582", "#D6604D", "#B2182B"
+    ];
+
     // =========================================================================
     // Shared chart option fragments
     // =========================================================================
@@ -47,6 +57,30 @@
             beginAtZero: true,
             title: { display: true, text: axisTitle, font: FONT_AXIS_TITLE },
             ticks: { font: FONT_TICK, precision: 0 }
+        };
+    }
+
+    /** Stacked bar chart options with titles and legend */
+    function stackedBarOptions(xTitle, yTitle) {
+        return {
+            layout: { padding: LAYOUT_PADDING },
+            plugins: {
+                title: { display: true, text: "", font: FONT_TITLE },
+                legend: { display: true, position: "top", labels: { font: FONT_LEGEND, usePointStyle: true } }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    title: { display: !!xTitle, text: xTitle || "", font: FONT_AXIS_TITLE },
+                    ticks: { font: FONT_TICK }
+                },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    title: { display: !!yTitle, text: yTitle || "", font: FONT_AXIS_TITLE },
+                    ticks: { font: FONT_TICK, precision: 0 }
+                }
+            }
         };
     }
 
@@ -335,6 +369,276 @@
                 },
                 colorPalette: PALETTE_CATEGORICAL
             }
+        },
+        {
+            id: "architecture-layer-balance",
+            name: "Architecture Layer Balance",
+            description: "Polar area chart showing the distribution of model elements across ArchiMate layers (Strategy, Business, Application, Technology, Motivation, Implementation & Migration). No custom properties required.",
+            propertiesCreated: [],
+            chartConfig: {
+                version: "1.0.0",
+                templateId: "architecture-layer-balance",
+                type: "polarArea",
+                title: "Architecture Layer Balance",
+                width: 700,
+                height: 550,
+                backgroundColor: "#FFFFFF",
+                dataSource: {
+                    method: "layer-distribution",
+                    elementFilter: { types: [], scope: "model" }
+                },
+                chartOptions: {
+                    layout: { padding: { top: 8, right: 8, bottom: 8, left: 8 } },
+                    plugins: {
+                        title: { display: true, text: "Architecture Layer Balance", font: FONT_TITLE },
+                        legend: {
+                            display: true,
+                            position: "right",
+                            labels: { font: FONT_LEGEND, padding: 10, boxWidth: 14 }
+                        }
+                    },
+                    scales: {
+                        r: {
+                            beginAtZero: true,
+                            ticks: { font: FONT_TICK, backdropColor: "rgba(255,255,255,0.75)", precision: 0 }
+                        }
+                    }
+                },
+                colorPalette: PALETTE_LAYER
+            }
+        },
+        {
+            id: "lifecycle-by-category",
+            name: "Lifecycle by Category",
+            description: "Stacked bar chart cross-tabulating elements by department and lifecycle status. Requires 'department' and 'lifecycle-status' properties on application-component elements.",
+            propertiesCreated: [
+                {
+                    name: "department",
+                    targetTypes: ["application-component"],
+                    defaultValue: "IT",
+                    description: "Owning department"
+                },
+                {
+                    name: "lifecycle-status",
+                    targetTypes: ["application-component"],
+                    defaultValue: "current",
+                    description: "Lifecycle status"
+                }
+            ],
+            chartConfig: (function () {
+                var opts = stackedBarOptions("Department", "Count");
+                opts.plugins.title.text = "Lifecycle by Category";
+                return {
+                    version: "1.0.0",
+                    templateId: "lifecycle-by-category",
+                    type: "bar",
+                    title: "Lifecycle by Category",
+                    width: 750,
+                    height: 480,
+                    backgroundColor: "#FFFFFF",
+                    dataSource: {
+                        method: "property-cross-tab",
+                        elementFilter: { types: ["application-component"], scope: "model" },
+                        groupByProperty: "department",
+                        segmentByProperty: "lifecycle-status",
+                        segmentOrder: ["emerging", "current", "sunset", "retired"],
+                        includeUnset: true,
+                        unsetLabel: "(not set)"
+                    },
+                    chartOptions: opts,
+                    colorPalette: PALETTE_LIFECYCLE
+                };
+            })()
+        },
+        {
+            id: "maturity-trend",
+            name: "Maturity Trend",
+            description: "Line chart comparing current vs target maturity levels across capabilities. Same data as the Capability Maturity radar but rendered as a line chart. Requires 'maturity-current' and 'maturity-target' properties on capability elements.",
+            propertiesCreated: [
+                {
+                    name: "maturity-current",
+                    targetTypes: ["capability"],
+                    defaultValue: "2",
+                    description: "Current maturity level (1-5)"
+                },
+                {
+                    name: "maturity-target",
+                    targetTypes: ["capability"],
+                    defaultValue: "4",
+                    description: "Target maturity level (1-5)"
+                }
+            ],
+            chartConfig: {
+                version: "1.0.0",
+                templateId: "maturity-trend",
+                type: "line",
+                title: "Maturity Trend",
+                width: 800,
+                height: 480,
+                backgroundColor: "#FFFFFF",
+                dataSource: {
+                    method: "property-radar",
+                    elementFilter: { types: ["capability"], scope: "model" },
+                    datasets: [
+                        { property: "maturity-current", label: "Current", fill: false },
+                        { property: "maturity-target", label: "Target", fill: false }
+                    ],
+                    skipGenericNames: true
+                },
+                chartOptions: {
+                    layout: { padding: LAYOUT_PADDING },
+                    plugins: {
+                        title: { display: true, text: "Maturity Trend", font: FONT_TITLE },
+                        legend: { display: true, position: "top", labels: { font: FONT_LEGEND, usePointStyle: true } }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: true, text: "Capability", font: FONT_AXIS_TITLE },
+                            ticks: { font: FONT_TICK }
+                        },
+                        y: {
+                            min: 0, max: 5,
+                            title: { display: true, text: "Maturity Level", font: FONT_AXIS_TITLE },
+                            ticks: { font: FONT_TICK, stepSize: 1 }
+                        }
+                    }
+                },
+                colorPalette: PALETTE_DUAL,
+                colorPaletteBorder: PALETTE_DUAL_BORDER
+            }
+        },
+        {
+            id: "risk-assessment-matrix",
+            name: "Risk Assessment Matrix",
+            description: "Scatter chart plotting elements by risk impact (x) and risk likelihood (y) to form a risk quadrant. Requires 'risk-impact' and 'risk-likelihood' properties on application-component elements.",
+            propertiesCreated: [
+                {
+                    name: "risk-impact",
+                    targetTypes: ["application-component"],
+                    defaultValue: "3",
+                    description: "Risk impact rating (1-5)"
+                },
+                {
+                    name: "risk-likelihood",
+                    targetTypes: ["application-component"],
+                    defaultValue: "3",
+                    description: "Risk likelihood rating (1-5)"
+                }
+            ],
+            chartConfig: {
+                version: "1.0.0",
+                templateId: "risk-assessment-matrix",
+                type: "scatter",
+                title: "Risk Assessment Matrix",
+                width: 700,
+                height: 550,
+                backgroundColor: "#FFFFFF",
+                dataSource: {
+                    method: "property-scatter",
+                    elementFilter: { types: ["application-component"], scope: "model" },
+                    xProperty: "risk-impact",
+                    yProperty: "risk-likelihood",
+                    labelElements: true
+                },
+                chartOptions: {
+                    layout: { padding: LAYOUT_PADDING },
+                    plugins: {
+                        title: { display: true, text: "Risk Assessment Matrix", font: FONT_TITLE },
+                        legend: { display: true, position: "bottom", labels: { font: FONT_LEGEND, usePointStyle: true } }
+                    },
+                    elements: { point: { radius: 8, hoverRadius: 10 } },
+                    scales: {
+                        x: {
+                            min: 0, max: 6,
+                            title: { display: true, text: "Impact", font: FONT_AXIS_TITLE },
+                            ticks: { font: FONT_TICK, stepSize: 1 }
+                        },
+                        y: {
+                            min: 0, max: 6,
+                            title: { display: true, text: "Likelihood", font: FONT_AXIS_TITLE },
+                            ticks: { font: FONT_TICK, stepSize: 1 }
+                        }
+                    }
+                },
+                colorPalette: PALETTE_CATEGORICAL
+            }
+        },
+        {
+            id: "view-coverage",
+            name: "View Coverage",
+            description: "Horizontal bar chart showing the top 20 elements ranked by the number of views they appear on. No custom properties required — uses viewRefs() to count views per element.",
+            propertiesCreated: [],
+            chartConfig: {
+                version: "1.0.0",
+                templateId: "view-coverage",
+                type: "bar",
+                title: "View Coverage",
+                width: 800,
+                height: 550,
+                backgroundColor: "#FFFFFF",
+                dataSource: {
+                    method: "view-coverage",
+                    elementFilter: { types: [], scope: "model" },
+                    topN: 20,
+                    maxLabelLength: 35
+                },
+                chartOptions: {
+                    indexAxis: "y",
+                    layout: { padding: LAYOUT_PADDING },
+                    plugins: {
+                        title: { display: true, text: "View Coverage (Top 20)", font: FONT_TITLE },
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: countAxis("Views"),
+                        y: { ticks: { font: { size: 12 } } }
+                    }
+                },
+                colorPalette: PALETTE_CATEGORICAL
+            }
+        },
+        {
+            id: "technology-stack-composition",
+            name: "Technology Stack Composition",
+            description: "Stacked bar chart cross-tabulating technology elements by category and lifecycle status. Requires 'technology-category' and 'lifecycle-status' properties on technology elements.",
+            propertiesCreated: [
+                {
+                    name: "technology-category",
+                    targetTypes: TECHNOLOGY_TYPES,
+                    defaultValue: "Infrastructure",
+                    description: "Technology category"
+                },
+                {
+                    name: "lifecycle-status",
+                    targetTypes: TECHNOLOGY_TYPES,
+                    defaultValue: "current",
+                    description: "Lifecycle status"
+                }
+            ],
+            chartConfig: (function () {
+                var opts = stackedBarOptions("Technology Category", "Count");
+                opts.plugins.title.text = "Technology Stack Composition";
+                return {
+                    version: "1.0.0",
+                    templateId: "technology-stack-composition",
+                    type: "bar",
+                    title: "Technology Stack Composition",
+                    width: 800,
+                    height: 500,
+                    backgroundColor: "#FFFFFF",
+                    dataSource: {
+                        method: "property-cross-tab",
+                        elementFilter: { types: TECHNOLOGY_TYPES, scope: "model" },
+                        groupByProperty: "technology-category",
+                        segmentByProperty: "lifecycle-status",
+                        segmentOrder: ["emerging", "current", "sunset", "retired"],
+                        includeUnset: true,
+                        unsetLabel: "(not set)"
+                    },
+                    chartOptions: opts,
+                    colorPalette: PALETTE_LIFECYCLE
+                };
+            })()
         }
     ];
 

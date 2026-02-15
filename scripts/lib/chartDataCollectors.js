@@ -78,6 +78,55 @@
     };
 
     // =========================================================================
+    // ArchiMate layer classification
+    // =========================================================================
+
+    var LAYER_MAP = {
+        // Strategy
+        "resource": "Strategy", "capability": "Strategy",
+        "course-of-action": "Strategy", "value-stream": "Strategy",
+        // Business
+        "business-actor": "Business", "business-role": "Business",
+        "business-collaboration": "Business", "business-interface": "Business",
+        "business-process": "Business", "business-function": "Business",
+        "business-interaction": "Business", "business-event": "Business",
+        "business-service": "Business", "business-object": "Business",
+        "contract": "Business", "representation": "Business", "product": "Business",
+        // Application
+        "application-component": "Application", "application-collaboration": "Application",
+        "application-interface": "Application", "application-function": "Application",
+        "application-interaction": "Application", "application-process": "Application",
+        "application-event": "Application", "application-service": "Application",
+        "data-object": "Application",
+        // Technology
+        "node": "Technology", "device": "Technology", "system-software": "Technology",
+        "technology-collaboration": "Technology", "technology-interface": "Technology",
+        "technology-process": "Technology", "technology-function": "Technology",
+        "technology-interaction": "Technology", "technology-event": "Technology",
+        "technology-service": "Technology", "artifact": "Technology",
+        "communication-network": "Technology", "path": "Technology",
+        "material": "Technology", "facility": "Technology", "equipment": "Technology",
+        "distribution-network": "Technology",
+        // Motivation
+        "stakeholder": "Motivation", "driver": "Motivation", "assessment": "Motivation",
+        "goal": "Motivation", "outcome": "Motivation", "principle": "Motivation",
+        "requirement": "Motivation", "constraint": "Motivation",
+        "meaning": "Motivation", "value": "Motivation",
+        // Implementation & Migration
+        "gap": "Implementation & Migration", "plateau": "Implementation & Migration",
+        "deliverable": "Implementation & Migration",
+        "implementation-event": "Implementation & Migration",
+        "work-package": "Implementation & Migration",
+        // Other
+        "location": "Other", "grouping": "Other"
+    };
+
+    var LAYER_ORDER = [
+        "Strategy", "Business", "Application", "Technology",
+        "Motivation", "Implementation & Migration", "Other"
+    ];
+
+    // =========================================================================
     // Helpers
     // =========================================================================
 
@@ -142,6 +191,7 @@
         if (!chartData.datasets) return;
 
         var perPoint = (chartType === "pie" || chartType === "doughnut" ||
+            chartType === "polarArea" ||
             (chartType === "bar" && chartData.datasets.length === 1));
 
         for (var i = 0; i < chartData.datasets.length; i++) {
@@ -500,6 +550,159 @@
         };
     }
 
+    /**
+     * Count elements grouped by ArchiMate layer.
+     * @param {Object} dataSource - Data source configuration
+     * @param {Object} [activeView] - Active view for scope filtering
+     * @returns {Object} Chart.js data: { labels, datasets }
+     */
+    function layerDistribution(dataSource, activeView) {
+        var elements = getFilteredElements(dataSource.elementFilter, activeView);
+
+        // Count by layer
+        var counts = {};
+        for (var i = 0; i < elements.length; i++) {
+            var layer = LAYER_MAP[elements[i].type] || "Other";
+            counts[layer] = (counts[layer] || 0) + 1;
+        }
+
+        // Build labels in LAYER_ORDER, omitting layers with zero elements
+        var labels = [];
+        var data = [];
+        for (var o = 0; o < LAYER_ORDER.length; o++) {
+            if (counts[LAYER_ORDER[o]]) {
+                labels.push(LAYER_ORDER[o]);
+                data.push(counts[LAYER_ORDER[o]]);
+            }
+        }
+
+        return {
+            labels: labels,
+            datasets: [{
+                label: "Elements",
+                data: data
+            }]
+        };
+    }
+
+    /**
+     * Cross-tabulate elements by two properties (group by A, segment by B).
+     * Returns multi-dataset data suitable for stacked/grouped bars or multi-series lines.
+     * @param {Object} dataSource - Data source configuration
+     * @param {Object} [activeView] - Active view for scope filtering
+     * @returns {Object} Chart.js data: { labels, datasets }
+     */
+    function propertyCrossTab(dataSource, activeView) {
+        var elements = getFilteredElements(dataSource.elementFilter, activeView);
+        var groupProp = dataSource.groupByProperty;
+        var segProp = dataSource.segmentByProperty;
+        var segLabels = dataSource.segmentLabels || {};
+        var segOrder = dataSource.segmentOrder || [];
+        var includeUnset = dataSource.includeUnset !== false;
+        var unsetLabel = dataSource.unsetLabel || "(not set)";
+
+        // Collect all group keys and segment keys, counting occurrences
+        var groupKeys = {};
+        var segKeys = {};
+        var matrix = {}; // matrix[group][segment] = count
+
+        for (var i = 0; i < elements.length; i++) {
+            var gVal = elements[i].prop(groupProp);
+            var sVal = elements[i].prop(segProp);
+            if ((gVal === null || gVal === undefined || gVal === "") && !includeUnset) continue;
+            if ((sVal === null || sVal === undefined || sVal === "") && !includeUnset) continue;
+
+            var gKey = (gVal === null || gVal === undefined || gVal === "") ? unsetLabel : gVal;
+            var sKey = (sVal === null || sVal === undefined || sVal === "") ? unsetLabel : sVal;
+
+            groupKeys[gKey] = true;
+            segKeys[sKey] = true;
+            if (!matrix[gKey]) matrix[gKey] = {};
+            matrix[gKey][sKey] = (matrix[gKey][sKey] || 0) + 1;
+        }
+
+        // Order group labels alphabetically
+        var labels = Object.keys(groupKeys).sort();
+
+        // Order segment keys: use segOrder if provided, otherwise alphabetical
+        var orderedSegs = [];
+        if (segOrder.length > 0) {
+            for (var s = 0; s < segOrder.length; s++) {
+                if (segKeys[segOrder[s]]) orderedSegs.push(segOrder[s]);
+            }
+            var allSegs = Object.keys(segKeys).sort();
+            for (var a = 0; a < allSegs.length; a++) {
+                if (orderedSegs.indexOf(allSegs[a]) === -1) orderedSegs.push(allSegs[a]);
+            }
+        } else {
+            orderedSegs = Object.keys(segKeys).sort();
+        }
+
+        // Build datasets: one per segment value
+        var datasets = [];
+        for (var d = 0; d < orderedSegs.length; d++) {
+            var segKey = orderedSegs[d];
+            var data = [];
+            for (var l = 0; l < labels.length; l++) {
+                data.push((matrix[labels[l]] && matrix[labels[l]][segKey]) || 0);
+            }
+            datasets.push({
+                label: segLabels[segKey] || segKey,
+                data: data
+            });
+        }
+
+        return {
+            labels: labels,
+            datasets: datasets
+        };
+    }
+
+    /**
+     * Count how many views each element appears on, return top N.
+     * @param {Object} dataSource - Data source configuration
+     * @param {Object} [activeView] - Active view for scope filtering
+     * @returns {Object} Chart.js data: { labels, datasets }
+     */
+    function viewCoverage(dataSource, activeView) {
+        var elements = getFilteredElements(dataSource.elementFilter, activeView);
+        var topN = dataSource.topN || 20;
+        var maxLabelLength = dataSource.maxLabelLength || 0;
+
+        var entries = [];
+        for (var i = 0; i < elements.length; i++) {
+            var el = elements[i];
+            var viewCount = $(el).viewRefs().size();
+            if (viewCount > 0) {
+                entries.push({ name: el.name || "(unnamed)", type: el.type, count: viewCount });
+            }
+        }
+
+        // Sort descending and take top N
+        entries.sort(function (a, b) { return b.count - a.count; });
+        entries = entries.slice(0, topN);
+
+        var labels = [];
+        var data = [];
+        for (var e = 0; e < entries.length; e++) {
+            var displayType = TYPE_DISPLAY_NAMES[entries[e].type] || entries[e].type;
+            var label = entries[e].name + " (" + displayType + ")";
+            if (maxLabelLength > 0 && label.length > maxLabelLength) {
+                label = label.substring(0, maxLabelLength - 1) + "\u2026";
+            }
+            labels.push(label);
+            data.push(entries[e].count);
+        }
+
+        return {
+            labels: labels,
+            datasets: [{
+                label: "Views",
+                data: data
+            }]
+        };
+    }
+
     // =========================================================================
     // Dispatcher
     // =========================================================================
@@ -509,7 +712,10 @@
         "type-distribution": typeDistribution,
         "relationship-count": relationshipCount,
         "property-scatter": propertyScatter,
-        "property-radar": propertyRadar
+        "property-radar": propertyRadar,
+        "layer-distribution": layerDistribution,
+        "property-cross-tab": propertyCrossTab,
+        "view-coverage": viewCoverage
     };
 
     /**
@@ -544,6 +750,9 @@
         relationshipCount: relationshipCount,
         propertyScatter: propertyScatter,
         propertyRadar: propertyRadar,
+        layerDistribution: layerDistribution,
+        propertyCrossTab: propertyCrossTab,
+        viewCoverage: viewCoverage,
         getFilteredElements: getFilteredElements
     };
 

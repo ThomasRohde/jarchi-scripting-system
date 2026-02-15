@@ -1,6 +1,6 @@
 # Create Chart Definition
 
-Creates a chart definition stored as a JSON property on a note element in the active view. Select from 6 pre-defined EA-relevant chart templates, configure dimensions and scope, and optionally initialize data properties on matching model elements.
+Creates a chart definition stored as a JSON property on a note element in the active view. Select from 12 pre-defined EA-relevant chart templates, configure dimensions and scope, and optionally initialize data properties on matching model elements.
 
 ## Requirements
 
@@ -50,6 +50,36 @@ Counts all model elements by their ArchiMate type. No custom properties needed.
 
 Shows the top 15 elements ranked by total relationship count (incoming + outgoing). No custom properties needed.
 
+### Architecture Layer Balance (Polar Area)
+
+Shows the distribution of model elements across ArchiMate layers (Strategy, Business, Application, Technology, Motivation, Implementation & Migration). No custom properties needed.
+
+### Lifecycle by Category (Stacked Bar)
+
+Cross-tabulates `application-component` elements by `department` (x-axis) and `lifecycle-status` (stacked segments). Shows how lifecycle status is distributed across departments.
+
+### Maturity Trend (Line)
+
+Compares current vs target maturity across `capability` elements as a line chart:
+- **Line 1**: `maturity-current` (1-5)
+- **Line 2**: `maturity-target` (1-5)
+
+Same data as the Capability Maturity radar rendered as a line chart for a different perspective.
+
+### Risk Assessment Matrix (Scatter)
+
+Plots `application-component` elements as points on a risk quadrant:
+- **X axis**: `risk-impact` (1-5)
+- **Y axis**: `risk-likelihood` (1-5)
+
+### View Coverage (Horizontal Bar)
+
+Shows the top 20 elements ranked by the number of views they appear on. No custom properties needed — uses the model's view structure directly.
+
+### Technology Stack Composition (Stacked Bar)
+
+Cross-tabulates technology-layer elements by `technology-category` (x-axis) and `lifecycle-status` (stacked segments). Shows lifecycle distribution across technology categories.
+
 ## Dialog Reference
 
 ### Template
@@ -72,7 +102,7 @@ Dropdown list of all available chart templates. Selecting a template updates the
 | **Initialize data properties** | When checked, sets default property values on matching elements that don't already have the property set |
 | **Properties list** | Shows which properties the template will create |
 
-Templates that don't require custom properties (Element Distribution, Relationship Complexity) have this option disabled.
+Templates that don't require custom properties (Element Distribution, Relationship Complexity, Architecture Layer Balance, View Coverage) have this option disabled.
 
 ## How Chart Definitions Work
 
@@ -88,7 +118,7 @@ The **Render Chart** script reads this definition, collects data from the model,
 
 ## Tips
 
-- Start with **Element Distribution** or **Relationship Complexity** templates — they don't require custom properties and work with any model
+- Start with **Element Distribution**, **Relationship Complexity**, **Architecture Layer Balance**, or **View Coverage** templates — they don't require custom properties and work with any model
 - Use **Current View** scope to chart only elements that appear on the active view
 - Property initialization only sets values where the property doesn't exist yet — it won't overwrite existing values
 - You can manually edit the `chart-definition` property on the note to customize beyond what the dialog offers

@@ -160,7 +160,7 @@ load(__DIR__ + "lib/chartDefinitions.js");
 
                     w.descText = new Text(container, SWT.MULTI | SWT.WRAP | SWT.READ_ONLY | SWT.BORDER);
                     w.descText.setText(templates[0].description || "");
-                    GridDataFactory.fillDefaults().grab(true, false).hint(SWT.DEFAULT, 60).applyTo(w.descText);
+                    GridDataFactory.fillDefaults().grab(true, false).hint(SWT.DEFAULT, 150).applyTo(w.descText);
 
                     // --- Chart settings group ---
 

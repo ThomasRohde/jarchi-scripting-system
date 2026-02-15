@@ -131,7 +131,22 @@ Include `"idempotencyKey": "unique-key"` in the apply request body. Replaying th
 - `__scriptResult.value` -- set return value
 - `__scriptResult.files` -- set output file paths
 
-**Limitation:** JArchi proxy property setters (`element.name = "..."`) fail with NPE in API context. Use `/model/apply` with `updateElement` operation instead.
+**Limitation:** JArchi proxy mutators fail in API script context because `CommandHandler.compoundcommands` is null:
+- `element.name = "..."` — NPE
+- `el.prop(key, value)` — NPE from `CommandHandler.executeCommand`
+- Use `/model/apply` with `updateElement`/`setProperty` for single changes
+- For **bulk property updates**, raw EMF in `/scripts/run` is most reliable:
+  ```javascript
+  var el = ArchimateModelUtils.getObjectByID(model, id);
+  var props = el.getProperties();
+  for (var i = 0; i < props.size(); i++) {
+      if (props.get(i).getKey().equals(key)) { props.get(i).setValue(val); return; }
+  }
+  // Add new property if not found
+  var p = IArchimateFactory.eINSTANCE.createProperty();
+  p.setKey(key); p.setValue(val); props.add(p);
+  ```
+  Note: raw EMF mutations bypass the undo stack (not Ctrl+Z undoable).
 
 **Path note:** `__DIR__` is automatically replaced with `__scriptsDir__` in API-executed scripts. Use `__scriptsDir__` when loading libraries (e.g., `load(__scriptsDir__ + "lib/log.js")`).
 
