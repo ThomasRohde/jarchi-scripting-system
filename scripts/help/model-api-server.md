@@ -60,7 +60,7 @@ Runs an HTTP REST API server inside Archi that exposes ArchiMate model operation
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/views` | List all views in the model |
-| `POST` | `/views` | Create a new view (async) |
+| `POST` | `/views` | Create a new view (synchronous, undoable) |
 | `GET` | `/views/{id}` | Get view details including elements and connections |
 | `DELETE` | `/views/{id}` | Delete a view |
 | `POST` | `/views/{id}/export` | Export view as an image |
@@ -87,13 +87,13 @@ Mutating operations use an async pattern:
 
 1. **Plan** -- `POST /model/plan` with your desired changes. Returns a validated change plan without modifying the model.
 2. **Apply** -- `POST /model/apply` with the plan. Returns an `operationId` immediately.
-3. **Poll** -- `GET /ops/status?opId=<id>` to check progress. Status progresses: `queued` -> `running` -> `completed` or `failed`.
+3. **Poll** -- `GET /ops/status?opId=<id>` to check progress. Status progresses: `queued` -> `processing` -> `complete` or `error`.
 
 All applied changes are executed as undoable GEF commands, so you can undo them with Ctrl+Z in Archi.
 
 ### Idempotency
 
-`POST /model/apply` supports idempotency keys via the `Idempotency-Key` header. If the same key is sent twice within 24 hours, the second request returns the cached result instead of re-applying changes.
+`POST /model/apply` supports idempotency keys via the request body field `idempotencyKey`. If the same key is sent twice within 24 hours, the second request returns the existing operation instead of re-applying changes.
 
 ## Monitor Dialog
 
@@ -101,7 +101,7 @@ The monitor dialog shows:
 
 - **Server status** -- Running/Stopped indicator with host and port
 - **Log output** -- Scrolling log of all requests, operations, and errors
-- **Operation count** -- Number of queued and completed operations
+- **Operation count** -- Number of queued and complete operations
 - **Stop Server** button -- Triggers graceful shutdown (waits up to 10 seconds for in-flight operations)
 
 ## Configuration

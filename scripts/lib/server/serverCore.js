@@ -38,8 +38,7 @@
     // Java imports
     var HttpServer = Java.type("com.sun.net.httpserver.HttpServer");
     var InetSocketAddress = Java.type("java.net.InetSocketAddress");
-    var BufferedReader = Java.type("java.io.BufferedReader");
-    var InputStreamReader = Java.type("java.io.InputStreamReader");
+    var ByteArrayOutputStream = Java.type("java.io.ByteArrayOutputStream");
     var JavaString = Java.type("java.lang.String");
     var StandardCharsets = Java.type("java.nio.charset.StandardCharsets");
     var UUID = Java.type("java.util.UUID");
@@ -158,19 +157,13 @@
             var maxBodySize = (typeof serverConfig !== "undefined") ? serverConfig.request.maxBodySize : 1048576;
 
             try {
-                var inputStream = exchange.getRequestBody();
-                var reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
-                var bodyBuilder = [];
-                var totalSize = 0;
-                var line;
-
-                while ((line = reader.readLine()) !== null) {
-                    var lineLength = line.length() + 1; // +1 for newline
-                    totalSize += lineLength;
-
-                    if (totalSize > maxBodySize) {
-                        reader.close();
-                        log("Request body too large: " + totalSize + " bytes (max: " + maxBodySize + ")", requestId);
+                var headers = exchange.getRequestHeaders();
+                var contentLengthHeader = headers ? headers.getFirst("Content-Length") : null;
+                if (contentLengthHeader) {
+                    var declaredLength = parseInt(String(contentLengthHeader), 10);
+                    if (isFinite(declaredLength) && declaredLength > maxBodySize) {
+                        log("Request body too large via Content-Length: " + declaredLength +
+                            " bytes (max: " + maxBodySize + ")", requestId);
                         return {
                             success: false,
                             body: null,
@@ -178,18 +171,38 @@
                             errorCode: "PayloadTooLarge"
                         };
                     }
-
-                    bodyBuilder.push(line);
                 }
 
-                reader.close();
+                var inputStream = exchange.getRequestBody();
+                var buffer = new (Java.type("byte[]"))(4096);
+                var output = new ByteArrayOutputStream();
+                var totalSize = 0;
+                var bytesRead;
 
-                var bodyStr = bodyBuilder.join("");
-                if (bodyStr.length === 0) {
+                try {
+                    while ((bytesRead = inputStream.read(buffer, 0, buffer.length)) !== -1) {
+                        totalSize += bytesRead;
+                        if (totalSize > maxBodySize) {
+                            log("Request body too large: " + totalSize + " bytes (max: " + maxBodySize + ")", requestId);
+                            return {
+                                success: false,
+                                body: null,
+                                error: "Request body too large (max " + Math.floor(maxBodySize / 1024) + "KB)",
+                                errorCode: "PayloadTooLarge"
+                            };
+                        }
+                        output.write(buffer, 0, bytesRead);
+                    }
+                } finally {
+                    try { inputStream.close(); } catch (_closeErr1) {}
+                }
+
+                if (totalSize === 0) {
                     return { success: true, body: null, error: null };
                 }
 
-                return { success: true, body: JSON.parse(bodyStr), error: null };
+                var bodyStr = new JavaString(output.toByteArray(), StandardCharsets.UTF_8);
+                return { success: true, body: JSON.parse(String(bodyStr)), error: null };
             } catch (e) {
                 log("ERROR: Failed to parse request body: " + e, requestId);
                 return { success: false, body: null, error: "Invalid JSON: " + String(e), errorCode: "InvalidJson" };

@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "description": "A comprehensive scripting toolkit for Archi — menu launcher, ELK graph layout, REST API server, model analysis, and reusable libraries for jArchi",
   "scripts": {
+    "lint": "npm run check:registry",
+    "test": "npm run check:syntax && npm run check:registry",
+    "check:syntax": "node build/check-syntax.js",
+    "check:registry": "node build/check-registry.js",
     "vendor": "node build/vendor.js",
     "hide": "node build/hide-dirs.js",
     "unhide": "node build/hide-dirs.js --unhide",
-    "postinstall": "node build/vendor.js && node build/hide-dirs.js"
+    "postinstall": "node build/vendor.js"
   },
   "keywords": [
     "archi",

@@ -28,6 +28,8 @@ Built for AI-assisted development with [Claude Code](https://claude.ai/code) —
 
    This runs `npm install` followed by the `postinstall` vendor script, which copies required npm packages (ELK, dagre, marked) into `scripts/vendor/` with GraalJS-compatible wrappers.
 
+   On Windows, if you want to hide support directories from the jArchi Script Manager, run `npm run hide` manually (`npm run unhide` restores visibility).
+
 3. **Point Archi to the scripts folder.** In Archi, go to *Edit > Preferences > Scripting* and set the scripts directory to the `scripts/` folder inside this repository.
 
 4. **Run the Menu script** (`scripts/Menu.ajs`) to access all scripts through a searchable launcher dialog.
@@ -172,6 +174,7 @@ Contributions are welcome! The easiest way to contribute is to use Claude Code w
 - **Scripts**: Title Case filenames, IIFE wrapper, try-catch, `log` module for output
 - **Libraries**: camelCase filenames, double-load guard, dual export (global + CommonJS)
 - **Registry**: kebab-case JSON filenames, all required fields populated
+- **Validation**: run `npm run lint` and `npm test` before submitting changes
 
 ## License
 

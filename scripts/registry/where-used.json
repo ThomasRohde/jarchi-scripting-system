@@ -12,7 +12,7 @@
   "tags": ["analysis", "views", "navigation", "references", "where-used"],
 
   "help": {
-    "markdown_path": "help/where-used.md"
+    "markdown_path": "../help/where-used.md"
   },
 
   "run": {

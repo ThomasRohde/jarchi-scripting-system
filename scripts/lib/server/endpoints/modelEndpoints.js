@@ -96,7 +96,7 @@
     function searchElements(model, criteria) {
         var results = [];
         var typeFilter = criteria.type ? criteria.type.toLowerCase() : null;
-        var namePattern = criteria.namePattern ? new RegExp(criteria.namePattern, 'i') : null;
+        var namePattern = criteria.nameRegex || null;
         var propertyKey = criteria.propertyKey || null;
         var propertyValue = criteria.propertyValue || null;
         var includeRelationships = criteria.includeRelationships !== false;
@@ -753,6 +753,69 @@
         handleSearch: function(request, response, serverState) {
             var body = request.body || {};
 
+            var limit = body.limit !== undefined ? parseInt(String(body.limit), 10) : 1000;
+            if (!isFinite(limit) || limit < 1) {
+                response.statusCode = 400;
+                response.body = {
+                    error: {
+                        code: "ValidationError",
+                        message: "Invalid 'limit'. Must be a positive integer."
+                    }
+                };
+                return;
+            }
+            if (limit > 10000) {
+                response.statusCode = 400;
+                response.body = {
+                    error: {
+                        code: "ValidationError",
+                        message: "Invalid 'limit'. Must be <= 10000."
+                    }
+                };
+                return;
+            }
+
+            var namePatternRaw = null;
+            var nameRegex = null;
+            var caseSensitive = body.caseSensitive === true;
+            if (body.namePattern !== undefined && body.namePattern !== null) {
+                if (typeof body.namePattern !== "string") {
+                    response.statusCode = 400;
+                    response.body = {
+                        error: {
+                            code: "ValidationError",
+                            message: "Invalid 'namePattern'. Must be a string."
+                        }
+                    };
+                    return;
+                }
+
+                namePatternRaw = String(body.namePattern);
+                if (namePatternRaw.length > 256) {
+                    response.statusCode = 400;
+                    response.body = {
+                        error: {
+                            code: "ValidationError",
+                            message: "Invalid 'namePattern'. Maximum length is 256 characters."
+                        }
+                    };
+                    return;
+                }
+
+                try {
+                    nameRegex = new RegExp(namePatternRaw, caseSensitive ? "" : "i");
+                } catch (regexErr) {
+                    response.statusCode = 400;
+                    response.body = {
+                        error: {
+                            code: "ValidationError",
+                            message: "Invalid 'namePattern' regex: " + String(regexErr)
+                        }
+                    };
+                    return;
+                }
+            }
+
             if (typeof loggingQueue !== "undefined" && loggingQueue) {
                 loggingQueue.log("[" + request.requestId + "] Search: type=" + (body.type || '*') + 
                     ", namePattern=" + (body.namePattern || '*'));
@@ -765,11 +828,13 @@
 
                 var criteria = {
                     type: body.type || null,
-                    namePattern: body.namePattern || null,
+                    namePattern: namePatternRaw,
+                    nameRegex: nameRegex,
+                    caseSensitive: caseSensitive,
                     propertyKey: body.propertyKey || null,
                     propertyValue: body.propertyValue || null,
                     includeRelationships: body.includeRelationships !== false,
-                    limit: body.limit || 1000
+                    limit: limit
                 };
 
                 var results = searchElements(serverState.modelRef, criteria);

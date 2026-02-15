@@ -66,6 +66,23 @@
         });
     }
 
+    function cleanupScriptRunGlobals() {
+        try { delete globalThis.__apiScriptOutput; } catch (_e1) {}
+        try { delete globalThis.__apiScriptResult; } catch (_e2) {}
+        try { delete globalThis.__apiScriptsDir; } catch (_e3) {}
+        try { delete globalThis.__origConsoleLog; } catch (_e4) {}
+        try { delete globalThis.__origConsolePrint; } catch (_e5) {}
+        try { delete globalThis.__origConsolePrintln; } catch (_e6) {}
+        try { delete globalThis.__origConsoleError; } catch (_e7) {}
+
+        try {
+            var scriptResultDesc = Object.getOwnPropertyDescriptor(globalThis, "__scriptResult");
+            if (scriptResultDesc && scriptResultDesc.configurable) {
+                delete globalThis.__scriptResult;
+            }
+        } catch (_e8) {}
+    }
+
     /**
      * Script execution endpoint handlers
      */
@@ -136,6 +153,9 @@
                 };
                 return;
             }
+
+            // Clean stale globals from any previous interrupted execution.
+            cleanupScriptRunGlobals();
 
             // Initialize global result containers BEFORE any output is captured
             // These must be on globalThis to survive across load() boundary
@@ -429,16 +449,7 @@
                 var output = globalThis.__apiScriptOutput || [];
                 var files = globalThis.__apiScriptResult ? (globalThis.__apiScriptResult.files || []) : [];
                 var resultValue = globalThis.__apiScriptResult ? globalThis.__apiScriptResult.value : null;
-                
-                // Clean up globals
-                delete globalThis.__apiScriptOutput;
-                delete globalThis.__apiScriptResult;
-                delete globalThis.__apiScriptsDir;
-                delete globalThis.__origConsoleLog;
-                delete globalThis.__origConsolePrint;
-                delete globalThis.__origConsolePrintln;
-                delete globalThis.__origConsoleError;
-                
+
                 // Refresh model snapshot after script execution
                 if (typeof modelSnapshot !== "undefined" && modelSnapshot && serverState.modelRef) {
                     try {
@@ -513,6 +524,8 @@
                         tempFile.delete();
                     }
                 } catch (e) { /* ignore cleanup errors */ }
+
+                cleanupScriptRunGlobals();
             }
         }
     };
