@@ -4,7 +4,9 @@
   "description": "A comprehensive scripting toolkit for Archi — menu launcher, ELK graph layout, REST API server, model analysis, and reusable libraries for jArchi",
   "scripts": {
     "vendor": "node build/vendor.js",
-    "postinstall": "node build/vendor.js"
+    "hide": "node build/hide-dirs.js",
+    "unhide": "node build/hide-dirs.js --unhide",
+    "postinstall": "node build/vendor.js && node build/hide-dirs.js"
   },
   "keywords": [
     "archi",
