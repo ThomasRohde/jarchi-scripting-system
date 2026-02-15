@@ -33,33 +33,58 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
     var COLS = 4;
     var CHART_WIDTH = 500;
     var CHART_HEIGHT = 350;
-    var GAP = 30;
+    var COL_GAP = 30;
     var MARGIN_LEFT = 50;
-    var MARGIN_TOP = 110;
-    var TITLE_HEIGHT = 60;
     var TITLE_Y = 25;
+    var TITLE_HEIGHT = 70;
+    var SUBTITLE_HEIGHT = 28;
+    var SECTION_HEADER_HEIGHT = 32;
+    var DESC_HEIGHT = 28;
+    var DESC_CHART_GAP = 4;
+    var SECTION_GAP = 45;
 
     // =========================================================================
-    // Chart ordering — logical grouping for the dashboard
-    // Row 1: Overview (no custom properties needed)
-    // Row 2: Application-focused analysis
-    // Row 3: Technology & Capability analysis
+    // Dashboard sections — logical grouping with descriptions
     // =========================================================================
 
-    var CHART_ORDER = [
-        "element-distribution",
-        "architecture-layer-balance",
-        "relationship-complexity",
-        "view-coverage",
-        "technical-debt-distribution",
-        "application-portfolio",
-        "risk-assessment-matrix",
-        "lifecycle-by-category",
-        "technology-lifecycle",
-        "technology-stack-composition",
-        "capability-maturity",
-        "maturity-trend"
+    var DASHBOARD_SECTIONS = [
+        {
+            title: "Overview",
+            charts: [
+                { id: "element-distribution", desc: "Composition of the architecture model by element type" },
+                { id: "architecture-layer-balance", desc: "Distribution of elements across ArchiMate layers" },
+                { id: "relationship-complexity", desc: "Elements with the highest number of dependencies" },
+                { id: "view-coverage", desc: "Elements appearing on the most architecture views" }
+            ]
+        },
+        {
+            title: "Application Analysis",
+            charts: [
+                { id: "technical-debt-distribution", desc: "Technical debt classification across applications" },
+                { id: "application-portfolio", desc: "Application landscape by business value, quality, and cost" },
+                { id: "risk-assessment-matrix", desc: "Application risk exposure by impact and likelihood" },
+                { id: "lifecycle-by-category", desc: "Application lifecycle stages by department" }
+            ]
+        },
+        {
+            title: "Technology & Capability",
+            charts: [
+                { id: "technology-lifecycle", desc: "Technology asset lifecycle status distribution" },
+                { id: "technology-stack-composition", desc: "Technology stack categories by lifecycle stage" },
+                { id: "capability-maturity", desc: "Current vs target maturity levels across capabilities" },
+                { id: "maturity-trend", desc: "Capability maturity gap \u2014 current state vs target" }
+            ]
+        }
     ];
+
+    // =========================================================================
+    // Style constants
+    // =========================================================================
+
+    var COLOR_TITLE = "#1a1a2e";
+    var COLOR_SUBTITLE = "#555555";
+    var COLOR_SECTION = "#2c3e50";
+    var COLOR_DESC = "#666666";
 
     // =========================================================================
     // Random value generators for each property
@@ -267,17 +292,21 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
             return;
         }
 
-        // Collect templates in display order
+        // Build template lookup
         var allTemplates = chartDefinitions.getAllTemplates();
         var templateMap = {};
         for (var t = 0; t < allTemplates.length; t++) {
             templateMap[allTemplates[t].id] = allTemplates[t];
         }
 
+        // Collect all templates referenced by dashboard sections
         var orderedTemplates = [];
-        for (var i = 0; i < CHART_ORDER.length; i++) {
-            var tmpl = templateMap[CHART_ORDER[i]];
-            if (tmpl) orderedTemplates.push(tmpl);
+        for (var s = 0; s < DASHBOARD_SECTIONS.length; s++) {
+            var charts = DASHBOARD_SECTIONS[s].charts;
+            for (var c = 0; c < charts.length; c++) {
+                var tmpl = templateMap[charts[c].id];
+                if (tmpl) orderedTemplates.push(tmpl);
+            }
         }
 
         if (orderedTemplates.length === 0) {
@@ -306,40 +335,93 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
         var dashView = model.createArchimateView(dashboardName);
         log.info("Created view: " + dashboardName);
 
-        // --- Create title note spanning the full grid width ---
-        var totalGridWidth = COLS * CHART_WIDTH + (COLS - 1) * GAP;
+        var totalGridWidth = COLS * CHART_WIDTH + (COLS - 1) * COL_GAP;
+
+        // --- Title ---
         var titleNote = dashView.createObject("note", MARGIN_LEFT, TITLE_Y, totalGridWidth, TITLE_HEIGHT);
         titleNote.setText(dashboardName);
         titleNote.borderType = BORDER_NONE;
         titleNote.fontStyle = "bold";
-        titleNote.fontSize = 24;
+        titleNote.fontSize = 26;
+        titleNote.fontColor = COLOR_TITLE;
         titleNote.textAlignment = TEXT_ALIGNMENT.CENTER;
 
-        // --- Place chart notes in a symmetric grid ---
+        // --- Subtitle (model name + date) ---
+        var today = new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date());
+        var subtitleY = TITLE_Y + TITLE_HEIGHT;
+        var subtitleNote = dashView.createObject("note", MARGIN_LEFT, subtitleY, totalGridWidth, SUBTITLE_HEIGHT);
+        subtitleNote.setText("Model: " + (model.name || "unnamed") + "  \u2022  Generated: " + today);
+        subtitleNote.borderType = BORDER_NONE;
+        subtitleNote.fontSize = 11;
+        subtitleNote.fontColor = COLOR_SUBTITLE;
+        subtitleNote.textAlignment = TEXT_ALIGNMENT.CENTER;
+
+        // --- Place sections, descriptions, and chart notes ---
         var chartNotes = [];
+        var cursorY = subtitleY + SUBTITLE_HEIGHT + 20;
 
-        for (var idx = 0; idx < orderedTemplates.length; idx++) {
-            var template = orderedTemplates[idx];
-            var col = idx % COLS;
-            var row = Math.floor(idx / COLS);
+        for (var s = 0; s < DASHBOARD_SECTIONS.length; s++) {
+            var section = DASHBOARD_SECTIONS[s];
 
-            var x = MARGIN_LEFT + col * (CHART_WIDTH + GAP);
-            var y = MARGIN_TOP + row * (CHART_HEIGHT + GAP);
+            // Section header
+            var sectionNote = dashView.createObject("note", MARGIN_LEFT, cursorY, totalGridWidth, SECTION_HEADER_HEIGHT);
+            sectionNote.setText(section.title.toUpperCase());
+            sectionNote.borderType = BORDER_NONE;
+            sectionNote.fontStyle = "bold";
+            sectionNote.fontSize = 13;
+            sectionNote.fontColor = COLOR_SECTION;
+            sectionNote.textAlignment = TEXT_ALIGNMENT.LEFT;
+            sectionNote.textPosition = TEXT_POSITION.CENTER;
+            cursorY += SECTION_HEADER_HEIGHT + 6;
 
-            var definition = chartDefinitions.createDefinition(template.id, {
-                title: template.chartConfig.title,
-                width: CHART_WIDTH,
-                height: CHART_HEIGHT,
-                scope: "model"
-            });
+            // Description notes (one per chart, side by side)
+            for (var c = 0; c < section.charts.length; c++) {
+                var chartDef = section.charts[c];
+                var col = c % COLS;
+                var x = MARGIN_LEFT + col * (CHART_WIDTH + COL_GAP);
 
-            var noteObj = dashView.createObject("note", x, y, CHART_WIDTH, CHART_HEIGHT);
-            noteObj.setText(definition.title);
-            noteObj.prop("chart-definition", JSON.stringify(definition));
-            noteObj.borderType = BORDER_NONE;
+                var descNote = dashView.createObject("note", x, cursorY, CHART_WIDTH, DESC_HEIGHT);
+                descNote.setText(chartDef.desc);
+                descNote.borderType = BORDER_NONE;
+                descNote.fontSize = 12;
+                descNote.fontStyle = "italic";
+                descNote.fontColor = COLOR_DESC;
+                descNote.textAlignment = TEXT_ALIGNMENT.CENTER;
+                descNote.textPosition = TEXT_POSITION.CENTER;
+            }
+            cursorY += DESC_HEIGHT + DESC_CHART_GAP;
 
-            chartNotes.push({ note: noteObj, definition: definition });
-            log.detail("  Placed: " + definition.title);
+            // Chart notes
+            for (var c = 0; c < section.charts.length; c++) {
+                var chartDef = section.charts[c];
+                var tmpl = templateMap[chartDef.id];
+                if (!tmpl) continue;
+
+                var col = c % COLS;
+                var x = MARGIN_LEFT + col * (CHART_WIDTH + COL_GAP);
+
+                var definition = chartDefinitions.createDefinition(tmpl.id, {
+                    title: tmpl.chartConfig.title,
+                    width: CHART_WIDTH,
+                    height: CHART_HEIGHT,
+                    scope: "model"
+                });
+
+                // Disable in-chart title — the description note above serves as the label
+                if (definition.chartOptions && definition.chartOptions.plugins &&
+                    definition.chartOptions.plugins.title) {
+                    definition.chartOptions.plugins.title.display = false;
+                }
+
+                var noteObj = dashView.createObject("note", x, cursorY, CHART_WIDTH, CHART_HEIGHT);
+                noteObj.setText(definition.title);
+                noteObj.prop("chart-definition", JSON.stringify(definition));
+                noteObj.borderType = BORDER_NONE;
+
+                chartNotes.push({ note: noteObj, definition: definition });
+                log.detail("  Placed: " + definition.title);
+            }
+            cursorY += CHART_HEIGHT + SECTION_GAP;
         }
 
         // --- Render all charts ---
@@ -348,8 +430,8 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
         var rendered = 0;
         var failed = 0;
 
-        for (var c = 0; c < chartNotes.length; c++) {
-            var entry = chartNotes[c];
+        for (var r = 0; r < chartNotes.length; r++) {
+            var entry = chartNotes[r];
             var noteObj = entry.note;
             var definition = entry.definition;
 
@@ -377,7 +459,7 @@ load(__DIR__ + "vendor/chartjs/chart-sync.js");
                 log.detail("  Rendered: " + definition.title);
             } catch (err) {
                 failed++;
-                log.error("  Failed: " + definition.title + " — " + err.toString());
+                log.error("  Failed: " + definition.title + " \u2014 " + err.toString());
                 if (err.stack) log.detail("    " + err.stack);
             }
         }
