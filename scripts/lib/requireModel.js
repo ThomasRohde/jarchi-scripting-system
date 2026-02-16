@@ -242,15 +242,6 @@
         }
     }
 
-    // Export globally for JArchi
-    if (typeof globalThis !== "undefined") {
-        globalThis.requireModel = requireModel;
-    } else if (typeof global !== "undefined") {
-        global.requireModel = requireModel;
-    }
-
-    // CommonJS for Node.js build tools
-    if (typeof module !== "undefined" && module.exports) {
-        module.exports = requireModel;
-    }
+    if (typeof globalThis !== "undefined") globalThis.requireModel = requireModel;
+    if (typeof module !== "undefined" && module.exports) module.exports = requireModel;
 })();

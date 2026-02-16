@@ -498,19 +498,7 @@
     // Module Export - Dual compatibility for load() and require()
     // =========================================================================
 
-    // For load() pattern - expose as global
-    if (typeof globalThis !== "undefined") {
-        globalThis.swtImports = swtImports;
-    } else if (typeof global !== "undefined") {
-        global.swtImports = swtImports;
-    } else {
-        // Fallback for JArchi environment
-        this.swtImports = swtImports;
-    }
-
-    // For require() pattern - CommonJS export
-    if (typeof module !== "undefined" && module.exports) {
-        module.exports = swtImports;
-    }
+    if (typeof globalThis !== "undefined") globalThis.swtImports = swtImports;
+    if (typeof module !== "undefined" && module.exports) module.exports = swtImports;
 
 })();
