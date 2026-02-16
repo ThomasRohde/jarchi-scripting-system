@@ -127,6 +127,16 @@
         var sel = entry.selection || {};
         var help = entry.help || {};
 
+        // Validate help path doesn't escape registry directory
+        var helpPath = help.markdown_path || "";
+        if (helpPath) {
+            var resolved = Paths.get(registryDir, helpPath).normalize();
+            var base = Paths.get(registryDir).getParent().normalize();
+            if (!resolved.startsWith(base)) {
+                helpPath = "";
+            }
+        }
+
         return {
             id: entry.id,
             title: entry.title,
@@ -141,7 +151,7 @@
             tags: entry.tags || [],
 
             help: {
-                markdown_path: help.markdown_path || ""
+                markdown_path: helpPath
             },
 
             run: {

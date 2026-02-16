@@ -299,7 +299,11 @@
             if (externalKeyProp) {
                 var keyVal = el.prop(externalKeyProp);
                 if (keyVal && keyVal.trim()) {
-                    index.elementsByExternalKey[keyVal.trim()] = el;
+                    var k = keyVal.trim();
+                    if (!index.elementsByExternalKey[k]) {
+                        index.elementsByExternalKey[k] = [];
+                    }
+                    index.elementsByExternalKey[k].push(el);
                 }
             }
 
@@ -397,6 +401,10 @@
                     }
                 }
             } else if (match.status === "ambiguous") {
+                // Mark all candidates as seen so delete mode won't remove them
+                for (var c = 0; c < match.candidates.length; c++) {
+                    seenElementIds[match.candidates[c].id] = true;
+                }
                 plan.ambiguous.push({
                     _rowNum: rec._rowNum,
                     record: rec,
@@ -458,9 +466,12 @@
         // 2. Match by external key property
         if (externalKeyProp && rec.properties && rec.properties[externalKeyProp]) {
             var keyVal = rec.properties[externalKeyProp].trim();
-            var byKey = index.elementsByExternalKey[keyVal];
-            if (byKey) {
-                return { status: "matched", element: byKey, matchedBy: "External Key (" + externalKeyProp + ")" };
+            var candidates = index.elementsByExternalKey[keyVal];
+            if (candidates && candidates.length === 1) {
+                return { status: "matched", element: candidates[0], matchedBy: "External Key (" + externalKeyProp + ")" };
+            }
+            if (candidates && candidates.length > 1) {
+                return { status: "ambiguous", candidates: candidates };
             }
         }
 
@@ -510,6 +521,17 @@
         var result = { toCreate: [], toUpdate: [], toSkip: [], ambiguous: [] };
         var mode = config.mode || "create-update";
 
+        // Build pending element index from planned creates
+        var pendingByName = {};
+        if (elementPlan && elementPlan.toCreate) {
+            for (var p = 0; p < elementPlan.toCreate.length; p++) {
+                var pendingRec = elementPlan.toCreate[p].record;
+                var pendingKey = (pendingRec.name || "").trim().toLowerCase() + "|" + pendingRec.type;
+                if (!pendingByName[pendingKey]) pendingByName[pendingKey] = [];
+                pendingByName[pendingKey].push(pendingRec);
+            }
+        }
+
         for (var i = 0; i < relRecords.length; i++) {
             var rec = relRecords[i];
 
@@ -551,8 +573,8 @@
             }
 
             // Resolve source and target
-            var sourceEl = resolveRelEndpoint(rec.sourceId, rec.sourceName, index);
-            var targetEl = resolveRelEndpoint(rec.targetId, rec.targetName, index);
+            var sourceEl = resolveRelEndpoint(rec.sourceId, rec.sourceName, index, pendingByName);
+            var targetEl = resolveRelEndpoint(rec.targetId, rec.targetName, index, pendingByName);
 
             if (!sourceEl) {
                 result.ambiguous.push({
@@ -571,47 +593,64 @@
                 continue;
             }
 
-            // Check for existing relationship with same key
-            var relKey = sourceEl.id + "|" + rec.type + "|" + targetEl.id + "|" + (rec.name || "").trim().toLowerCase();
-            var existing = index.relationshipsByKey[relKey];
-            if (existing && existing.length > 0) {
-                result.toSkip.push({
-                    _rowNum: rec._rowNum,
-                    record: rec,
-                    matchedBy: "Key (source+type+target+name)",
-                    relationship: existing[0],
-                    reason: "Already exists"
-                });
-                continue;
+            // Check for existing relationship with same key (skip if either endpoint is pending)
+            if (!sourceEl._pending && !targetEl._pending) {
+                var relKey = sourceEl.id + "|" + rec.type + "|" + targetEl.id + "|" + (rec.name || "").trim().toLowerCase();
+                var existing = index.relationshipsByKey[relKey];
+                if (existing && existing.length > 0) {
+                    result.toSkip.push({
+                        _rowNum: rec._rowNum,
+                        record: rec,
+                        matchedBy: "Key (source+type+target+name)",
+                        relationship: existing[0],
+                        reason: "Already exists"
+                    });
+                    continue;
+                }
             }
 
-            // Create
+            // Create (null out pending endpoints — applyDiffPlan will re-resolve after element creation)
             result.toCreate.push({
                 _rowNum: rec._rowNum,
                 record: rec,
-                resolvedSource: sourceEl,
-                resolvedTarget: targetEl
+                resolvedSource: sourceEl._pending ? null : sourceEl,
+                resolvedTarget: targetEl._pending ? null : targetEl
             });
         }
 
         return result;
     }
 
-    function resolveRelEndpoint(id, name, index) {
+    function resolveRelEndpoint(id, name, index, pendingByName) {
         if (id) {
             var byId = index.elementsById[id];
             if (byId) return byId;
         }
         if (name) {
-            // Try by name (any type)
             var nameKey = name.trim().toLowerCase();
+            var allMatches = [];
             var keys = Object.keys(index.elementsByNameType);
             for (var k = 0; k < keys.length; k++) {
                 if (keys[k].indexOf(nameKey + "|") === 0) {
                     var candidates = index.elementsByNameType[keys[k]];
-                    if (candidates.length === 1) return candidates[0];
+                    for (var c = 0; c < candidates.length; c++) {
+                        allMatches.push(candidates[c]);
+                    }
                 }
             }
+            // Also check pending elements (planned creates not yet in model)
+            if (pendingByName) {
+                var pendingKeys = Object.keys(pendingByName);
+                for (var pk = 0; pk < pendingKeys.length; pk++) {
+                    if (pendingKeys[pk].indexOf(nameKey + "|") === 0) {
+                        var pending = pendingByName[pendingKeys[pk]];
+                        for (var pc = 0; pc < pending.length; pc++) {
+                            allMatches.push({ _pending: true, name: pending[pc].name, type: pending[pc].type });
+                        }
+                    }
+                }
+            }
+            if (allMatches.length === 1) return allMatches[0];
         }
         return null;
     }

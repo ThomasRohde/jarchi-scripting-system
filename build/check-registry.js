@@ -87,7 +87,10 @@ function run() {
 
     if (entry.help && typeof entry.help.markdown_path === "string" && entry.help.markdown_path.trim() !== "") {
       const helpPath = path.resolve(REGISTRY_DIR, entry.help.markdown_path);
-      if (!fs.existsSync(helpPath)) {
+      const normalizedHelp = path.relative(SCRIPTS_DIR, helpPath);
+      if (normalizedHelp.startsWith("..")) {
+        errors.push(registryFile + ": help markdown_path escapes registry directory");
+      } else if (!fs.existsSync(helpPath)) {
         errors.push(registryFile + ": help markdown file not found at '" + entry.help.markdown_path + "'");
       }
     }

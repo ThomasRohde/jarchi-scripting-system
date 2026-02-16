@@ -33,6 +33,7 @@
     var Font = swt.Font;
     var FontData = swt.FontData;
     var Display = swt.Display;
+    var Paths = Java.type("java.nio.file.Paths");
 
     // Custom button IDs
     var RUN_ID = IDialogConstants.OK_ID;
@@ -455,10 +456,15 @@
             var helpPath = descriptor.help.markdown_path;
             var html;
             if (helpPath && helpPath.length > 0) {
-                // Resolve relative to registry dir
+                // Resolve relative to registry dir with containment check
                 var registryDir = menuConfig.getRegistryDir();
-                var resolved = registryDir + helpPath;
-                html = markdownRenderer.renderFile(resolved);
+                var resolved = Paths.get(registryDir, helpPath).normalize();
+                var base = Paths.get(registryDir).getParent().normalize();
+                if (!resolved.startsWith(base)) {
+                    html = markdownRenderer.render("# Error\n\nHelp path is outside the allowed directory.");
+                } else {
+                    html = markdownRenderer.renderFile(String(resolved));
+                }
             } else {
                 // No help file — show description as markdown
                 if (descriptor.description) {

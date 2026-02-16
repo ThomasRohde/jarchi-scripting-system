@@ -797,10 +797,22 @@ load(__DIR__ + "lib/modelSyncEngine.js");
                     writer.write([item._rowNum, "create", csvEscape(item.record.name), csvEscape(item.record.type), "", "", ""].join(","));
                     writer.newLine();
                 }
+                for (var i = 0; i < (plan.relToCreate || []).length; i++) {
+                    var item = plan.relToCreate[i];
+                    var nameStr = (item.record.sourceName || item.record.sourceId) + " -> " + (item.record.targetName || item.record.targetId);
+                    writer.write([item._rowNum, "rel-create", csvEscape(nameStr), csvEscape(item.record.type + " (rel)"), "", "", ""].join(","));
+                    writer.newLine();
+                }
                 for (var i = 0; i < plan.toUpdate.length; i++) {
                     var item = plan.toUpdate[i];
                     var changeStr = item.changes.map(function (c) { return c.field; }).join("; ");
                     writer.write([item._rowNum, "update", csvEscape(item.element.name), csvEscape(item.element.type), item.matchedBy, csvEscape(changeStr), item.element.id].join(","));
+                    writer.newLine();
+                }
+                for (var i = 0; i < (plan.relToUpdate || []).length; i++) {
+                    var item = plan.relToUpdate[i];
+                    var changeStr = item.changes.map(function (c) { return c.field; }).join("; ");
+                    writer.write([item._rowNum, "rel-update", csvEscape(item.relationship.name || ""), csvEscape(item.record.type + " (rel)"), item.matchedBy, csvEscape(changeStr), item.relationship.id].join(","));
                     writer.newLine();
                 }
                 for (var i = 0; i < plan.toDelete.length; i++) {
@@ -814,9 +826,21 @@ load(__DIR__ + "lib/modelSyncEngine.js");
                     writer.write([item._rowNum, "skip", csvEscape(item.record.name), csvEscape(item.record.type), item.matchedBy || "", csvEscape(item.reason || ""), id].join(","));
                     writer.newLine();
                 }
+                for (var i = 0; i < (plan.relToSkip || []).length; i++) {
+                    var item = plan.relToSkip[i];
+                    var id = item.relationship ? item.relationship.id : "";
+                    writer.write([item._rowNum, "rel-skip", csvEscape(item.record.name || ""), csvEscape(item.record.type + " (rel)"), item.matchedBy || "", csvEscape(item.reason || ""), id].join(","));
+                    writer.newLine();
+                }
                 for (var i = 0; i < plan.ambiguous.length; i++) {
                     var item = plan.ambiguous[i];
                     writer.write([item._rowNum, "ambiguous", csvEscape(item.record.name), csvEscape(item.record.type), "", csvEscape(item.matchCount + " candidates"), ""].join(","));
+                    writer.newLine();
+                }
+                for (var i = 0; i < (plan.relAmbiguous || []).length; i++) {
+                    var item = plan.relAmbiguous[i];
+                    var nameStr = item.record.name || ((item.record.sourceName || item.record.sourceId) + " -> " + (item.record.targetName || item.record.targetId));
+                    writer.write([item._rowNum, "rel-ambiguous", csvEscape(nameStr), csvEscape(item.record.type + " (rel)"), "", csvEscape(item.reason || ""), ""].join(","));
                     writer.newLine();
                 }
             } finally {

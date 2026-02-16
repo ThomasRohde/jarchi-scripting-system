@@ -367,7 +367,8 @@ load(__DIR__ + "lib/requireModel.js");
 
                 // Remove duplicate parallel relationships (same source+target+type)
                 var relKey = (rel.source ? rel.source.id : "") + "|" +
-                             (rel.target ? rel.target.id : "") + "|" + rel.type;
+                             (rel.target ? rel.target.id : "") + "|" + rel.type + "|" +
+                             (rel.name || "").trim().toLowerCase();
                 if (seenRelKeys[relKey]) {
                     try {
                         rel.delete();
