@@ -1,24 +1,343 @@
 {
-    "version": "1.0.0",
+    "version": "2.0.0",
+
     "naming": {
         "global": {
-            "minLength": 2,
-            "maxLength": 120,
+            "minLength": 3,
+            "maxLength": 80,
             "trimWhitespace": true,
             "noMultipleSpaces": true,
-            "noControlChars": true
+            "noControlChars": true,
+            "transform": "titleCase"
         },
-        "byType": {},
-        "byLayer": {}
+
+        "byType": {
+            "business-process": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)+$",
+                "patternDescription": "Title Case with at least two words, e.g. \"Handle Claim\"",
+                "transform": "titleCase",
+                "minLength": 5
+            },
+            "business-function": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case words, e.g. \"Risk Management\"",
+                "transform": "titleCase"
+            },
+            "business-service": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case words, e.g. \"Payment Processing\"",
+                "transform": "titleCase"
+            },
+            "business-event": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case words, e.g. \"Request Received\"",
+                "transform": "titleCase"
+            },
+            "business-object": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case noun phrase, e.g. \"Insurance Policy\"",
+                "transform": "titleCase"
+            },
+            "application-component": {
+                "pattern": "^[A-Z][A-Za-z0-9]+(\\s[A-Za-z0-9]+)*$",
+                "patternDescription": "Capitalized words (letters and digits allowed), e.g. \"SAP ERP\" or \"CRM System\"",
+                "transform": "titleCase",
+                "minLength": 3
+            },
+            "application-function": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case words, e.g. \"Data Validation\"",
+                "transform": "titleCase"
+            },
+            "application-service": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case words, e.g. \"Customer Lookup\"",
+                "transform": "titleCase"
+            },
+            "application-process": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)+$",
+                "patternDescription": "Title Case with at least two words, e.g. \"Validate Input\"",
+                "transform": "titleCase",
+                "minLength": 5
+            },
+            "data-object": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case noun phrase, e.g. \"Customer Record\"",
+                "transform": "titleCase"
+            },
+            "artifact": {
+                "minLength": 3,
+                "maxLength": 100
+            },
+            "node": {
+                "pattern": "^[A-Z][A-Za-z0-9]+(\\s[A-Za-z0-9]+)*$",
+                "patternDescription": "Capitalized words (letters and digits allowed), e.g. \"Web Server\"",
+                "transform": "titleCase"
+            },
+            "device": {
+                "pattern": "^[A-Z][A-Za-z0-9]+(\\s[A-Za-z0-9]+)*$",
+                "patternDescription": "Capitalized words (letters and digits allowed), e.g. \"Cisco Router\"",
+                "transform": "titleCase"
+            },
+            "system-software": {
+                "minLength": 3
+            },
+            "capability": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z&][A-Za-z]*)*$",
+                "patternDescription": "Title Case words (& allowed), e.g. \"IT Management & Operations\"",
+                "transform": "titleCase",
+                "minLength": 5
+            },
+            "value-stream": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)+$",
+                "patternDescription": "Title Case with at least two words, e.g. \"Deliver Customer Service\"",
+                "transform": "titleCase",
+                "minLength": 5
+            },
+            "goal": {
+                "minLength": 10,
+                "maxLength": 120
+            },
+            "principle": {
+                "minLength": 10,
+                "maxLength": 120
+            },
+            "requirement": {
+                "minLength": 10,
+                "maxLength": 120
+            },
+            "constraint": {
+                "minLength": 5
+            },
+            "work-package": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case words, e.g. \"Infrastructure Upgrade\"",
+                "transform": "titleCase",
+                "minLength": 5
+            },
+            "deliverable": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case words, e.g. \"Architecture Roadmap\"",
+                "transform": "titleCase"
+            },
+            "plateau": {
+                "pattern": "^[A-Z][a-z]+(\\s[A-Z][A-Za-z]*)*$",
+                "patternDescription": "Title Case words, e.g. \"Phase One Production\"",
+                "transform": "titleCase"
+            }
+        },
+
+        "byLayer": {
+            "business": {
+                "minLength": 3,
+                "maxLength": 80,
+                "transform": "titleCase"
+            },
+            "application": {
+                "minLength": 3,
+                "maxLength": 80,
+                "transform": "titleCase"
+            },
+            "technology": {
+                "minLength": 3,
+                "maxLength": 80
+            },
+            "strategy": {
+                "minLength": 5,
+                "maxLength": 80,
+                "transform": "titleCase"
+            },
+            "motivation": {
+                "minLength": 5,
+                "maxLength": 120
+            },
+            "physical": {
+                "minLength": 3,
+                "maxLength": 80,
+                "transform": "titleCase"
+            },
+            "implementation": {
+                "minLength": 5,
+                "maxLength": 80,
+                "transform": "titleCase"
+            }
+        }
     },
+
     "properties": {
-        "global": [],
-        "byType": {},
-        "byLayer": {}
+        "global": [
+            {
+                "name": "Owner",
+                "required": true,
+                "defaultValue": "(unassigned)"
+            },
+            {
+                "name": "Status",
+                "required": true,
+                "defaultValue": "Draft",
+                "allowedValues": [
+                    "Draft",
+                    "Proposed",
+                    "Approved",
+                    "Current",
+                    "Deprecated",
+                    "Retired"
+                ]
+            }
+        ],
+
+        "byType": {
+            "application-component": [
+                {
+                    "name": "Vendor",
+                    "required": false
+                },
+                {
+                    "name": "Version",
+                    "required": false
+                },
+                {
+                    "name": "Criticality",
+                    "required": true,
+                    "defaultValue": "Standard",
+                    "allowedValues": [
+                        "Mission Critical",
+                        "Important",
+                        "Standard",
+                        "Low"
+                    ]
+                }
+            ],
+            "business-process": [
+                {
+                    "name": "Frequency",
+                    "required": false,
+                    "allowedValues": [
+                        "Real-time",
+                        "Daily",
+                        "Weekly",
+                        "Monthly",
+                        "Quarterly",
+                        "Annually",
+                        "On Demand",
+                        "Event-driven"
+                    ]
+                }
+            ],
+            "capability": [
+                {
+                    "name": "Maturity",
+                    "required": false,
+                    "allowedValues": [
+                        "Initial",
+                        "Developing",
+                        "Defined",
+                        "Managed",
+                        "Optimizing"
+                    ]
+                }
+            ],
+            "goal": [
+                {
+                    "name": "Target Date",
+                    "required": false
+                },
+                {
+                    "name": "Priority",
+                    "required": false,
+                    "allowedValues": [
+                        "Critical",
+                        "High",
+                        "Medium",
+                        "Low"
+                    ]
+                }
+            ],
+            "node": [
+                {
+                    "name": "Environment",
+                    "required": false,
+                    "allowedValues": [
+                        "Production",
+                        "Staging",
+                        "Test",
+                        "Development"
+                    ]
+                }
+            ],
+            "device": [
+                {
+                    "name": "Environment",
+                    "required": false,
+                    "allowedValues": [
+                        "Production",
+                        "Staging",
+                        "Test",
+                        "Development"
+                    ]
+                }
+            ],
+            "system-software": [
+                {
+                    "name": "Version",
+                    "required": false
+                },
+                {
+                    "name": "Vendor",
+                    "required": false
+                }
+            ],
+            "work-package": [
+                {
+                    "name": "Priority",
+                    "required": false,
+                    "allowedValues": [
+                        "Critical",
+                        "High",
+                        "Medium",
+                        "Low"
+                    ]
+                }
+            ]
+        },
+
+        "byLayer": {
+            "business": [
+                {
+                    "name": "Business Domain",
+                    "required": false
+                }
+            ],
+            "application": [
+                {
+                    "name": "Technical Owner",
+                    "required": false
+                }
+            ],
+            "technology": [
+                {
+                    "name": "Location",
+                    "required": false
+                }
+            ]
+        }
     },
+
     "documentation": {
-        "requiredForTypes": [],
-        "requiredForLayers": [],
-        "minLength": 0
+        "requiredForTypes": [
+            "business-process",
+            "business-service",
+            "application-component",
+            "application-service",
+            "capability",
+            "value-stream",
+            "goal",
+            "principle",
+            "requirement"
+        ],
+        "requiredForLayers": [
+            "strategy"
+        ],
+        "minLength": 20
     }
 }

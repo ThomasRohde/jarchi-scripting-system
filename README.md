@@ -169,15 +169,6 @@ curl -X POST http://localhost:8765/model/search \
 
 All mutations are undoable (Ctrl+Z). Supports async plan/apply pattern and idempotency keys. Binds to localhost only — intended for local development and automation.
 
-## Contributing
-
-Contributions are welcome! The easiest way to contribute is to use Claude Code with this project's skills — it will enforce all conventions automatically. For manual contributions, follow:
-
-- **Scripts**: Title Case filenames, IIFE wrapper, try-catch, `log` module for output
-- **Libraries**: camelCase filenames, double-load guard, dual export (global + CommonJS)
-- **Registry**: kebab-case JSON filenames, all required fields populated
-- **Validation**: run `npm run lint` and `npm test` before submitting changes
-
 ## License
 
 [MIT](LICENSE)

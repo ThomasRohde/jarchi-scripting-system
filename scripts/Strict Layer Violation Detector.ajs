@@ -572,7 +572,7 @@ load(__DIR__ + "lib/relationshipMatrix.js");
                 if (sel.length === 0 || !remediationLabel) return;
                 var v = sel[0].getData("violation");
                 if (v && v.mediation) {
-                    remediationLabel.setText("Mediation: " + v.mediation.suggestion + "\nPattern: " + v.mediation.pattern);
+                    remediationLabel.setText(v.mediation.description + "\nSuggestion: " + v.mediation.suggestion + "\nPattern: " + v.mediation.pattern);
                 } else {
                     remediationLabel.setText("No specific mediation pattern configured for this layer combination.");
                 }
@@ -667,7 +667,7 @@ load(__DIR__ + "lib/relationshipMatrix.js");
 
                     var remLabel = new Label(violationsComp, SWT.WRAP);
                     remLabel.setText("Select a row to see mediation advice.");
-                    GridDataFactory.fillDefaults().grab(true, false).hint(SWT.DEFAULT, 40).applyTo(remLabel);
+                    GridDataFactory.fillDefaults().grab(true, false).hint(SWT.DEFAULT, 100).applyTo(remLabel);
 
                     buildViolationTable(violationsComp, violations, remLabel);
 

@@ -262,6 +262,7 @@
             try {
                 var re = new RegExp(typeRules.pattern);
                 if (!re.test(name)) {
+                    var patternDesc = typeRules.patternDescription || typeRules.pattern;
                     violations.push({
                         severity: "warning",
                         ruleId: "naming.pattern",
@@ -269,7 +270,7 @@
                         elementName: name,
                         elementType: elType,
                         elementLayer: layerLabel,
-                        message: "Name does not match pattern: " + typeRules.pattern,
+                        message: "Name should use: " + patternDesc,
                         currentValue: name,
                         fix: null
                     });
@@ -282,6 +283,7 @@
             try {
                 var layerRe = new RegExp(layerRules.pattern);
                 if (!layerRe.test(name)) {
+                    var layerPatternDesc = layerRules.patternDescription || layerRules.pattern;
                     violations.push({
                         severity: "warning",
                         ruleId: "naming.pattern",
@@ -289,7 +291,7 @@
                         elementName: name,
                         elementType: elType,
                         elementLayer: layerLabel,
-                        message: "Name does not match layer pattern: " + layerRules.pattern,
+                        message: "Name should use: " + layerPatternDesc,
                         currentValue: name,
                         fix: null
                     });
