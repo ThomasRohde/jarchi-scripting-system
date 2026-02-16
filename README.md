@@ -1,5 +1,7 @@
 # JArchi Scripting System
 
+![JArchi Scripting System Menu](assets/screenshot.png)
+
 A comprehensive scripting toolkit for [Archi](https://www.archimatetool.com/) — the open-source ArchiMate modeling tool. Provides a menu-driven launcher, automatic graph layout, a REST API server, model analysis tools, and a library of reusable modules, all powered by the [jArchi](https://www.archimatetool.com/plugins/) scripting plugin.
 
 Built for AI-assisted development with [Claude Code](https://claude.ai/code) — custom skills and slash commands let you describe what you need in plain language and get production-ready JArchi scripts that follow all project conventions.
