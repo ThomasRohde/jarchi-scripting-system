@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
 JArchi scripts for Archi (ArchiMate modeling tool). Scripts run in **GraalVM GraalJS (ECMAScript 2024), NOT Node.js**. The runtime provides Java interop via `Java.type()` and special globals (`$`, `model`, `shell`, `selection`, `__DIR__`).
@@ -70,6 +68,8 @@ const { SWT, Label } = swtImports;      // destructure from global
 
 **Do NOT use `require()` for local files** — use `load()`. The `require()` function exists but resolves differently (looks in `node_modules/`).
 
+SWT/JFace types are pre-imported via `swtImports.js` — don't re-import them.
+
 ### Script Naming
 
 Top-level `.ajs` scripts use **Title Case with spaces** for filenames (e.g., `ELK Layout.ajs`, `Find Unused Elements.ajs`). Do NOT use PascalCase or kebab-case.
@@ -93,24 +93,9 @@ log.warn("Skipped 2 items");   // Orange — non-fatal warnings
 log.error("Failed: " + err);   // Red    — errors (uses console.error)
 ```
 
-Convention:
-- Start every script with `log.header("Script Name")` after loading deps
-- Use `log.detail()` for indented sub-steps (prefix with two spaces)
-- End with `log.success(...)` on the happy path
-- Catch blocks should use `log.error(...)` instead of raw `console.error()`
-
-### Java Interop
-
-```javascript
-const MyJavaClass = Java.type("com.example.MyClass");
-const ExtendedClass = Java.extend(MyJavaClass);
-```
-
-SWT/JFace types are pre-imported via `swtImports.js` — don't re-import them.
+Start with `log.header()`, end with `log.success()`, use `log.error()` in catch blocks.
 
 ## Key Context Files
-
-Read these before writing JArchi scripts:
 - `context/Script Development Guide for Agents.md` — comprehensive coding guide (start here)
 - `context/jarchi-1.11-api-reference.md` — latest API features
 - `context/graalJS-compatibility.md` — GraalJS runtime details and limitations
