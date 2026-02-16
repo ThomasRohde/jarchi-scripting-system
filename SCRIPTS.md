@@ -34,7 +34,6 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 | Script | Description |
 |--------|-------------|
 | **Color by Property** | Colors diagram objects on the active view based on a property value. Each unique property value gets a distinct color from a built-in palette. Double-click any row in the preview table to open a native color picker. |
-| **Reset Visual Appearance** | Resets fill color, font color, font, and line color of selected diagram objects back to their default values. Works on the current selection in a view, or all objects in the active view if nothing is selected. |
 | **Render Chart** | Renders chart images on note elements that have a `chart-definition` property. Collects data from the model, renders via Chart.js to PNG, and sets the image on the note. Processes selected notes or all chart notes on the view. |
 | **Create Chart Definition** | Creates a chart definition on a note element in the active view. Opens a dialog to select from pre-defined EA chart templates, configure dimensions and scope, and optionally initialize data properties on matching model elements. |
 | **Create Dashboard** | Creates a new dashboard view with all 12 chart templates in a symmetric 4x3 grid. Initializes missing data properties with random values, creates sample elements for missing types, and renders all charts automatically. |
@@ -44,7 +43,6 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 | Script | Description |
 |--------|-------------|
 | **Rename Elements** | Bulk find-and-replace in element names. Searches selected elements (or all elements if none selected) for a text pattern and replaces it. Supports plain text and optional regex matching. |
-| **Set Property** | Batch-set a property on all selected elements. Prompts for property name and value, then applies to every selected element. Can also remove a property by leaving the value empty. |
 
 ## Export / Import
 
@@ -60,6 +58,7 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 |--------|-------------|
 | **Delete Unused Elements** | Finds and deletes elements that are not placed on any view. Also removes relationships connected only to unused elements. Shows a confirmation dialog before deleting. |
 | **Merge Duplicate Elements** | Detects duplicate elements (same type + normalized name), lets the user pick a canonical element per group, and merges relationships, view references, properties, and documentation from duplicates onto the canonical. Supports dry-run preview. |
+| **Reset Visual Appearance** | Resets fill color, font color, font, and line color of selected diagram objects back to their default values. Works on the current selection in a view, or all objects in the active view if nothing is selected. |
 
 ## Planning
 
@@ -71,6 +70,7 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 
 | Script | Description |
 |--------|-------------|
+| **Set Property** | Batch-set a property on all selected elements. Prompts for property name and value, then applies to every selected element. Can also remove a property by leaving the value empty. |
 | **Naming and Property Standards Enforcer** | Validates model elements against configurable naming, property, and documentation standards. Reports violations in a tabbed dialog with auto-fix suggestions for whitespace cleanup and default property values. Supports check-only and apply modes with CSV export. |
 | **Model Sync** | CSV/JSON upsert with full dry-run preview. Imports elements and relationships, matching against existing model by ID, external key, or name+type. Supports create-only, create+update, and create+update+delete modes with confirmation and audit report generation. |
 

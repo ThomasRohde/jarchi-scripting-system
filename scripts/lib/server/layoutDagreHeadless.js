@@ -19,20 +19,14 @@
         return;
     }
 
-    // Load dagre library
+    // Load dagre library from vendor directory
     var dagre;
     try {
-        // Load from vendor directory (path relative to scripts/ via __DIR__ chain)
         dagre = require(__DIR__ + '../../vendor/dagre/dagre.min.js');
     } catch (e) {
-        try {
-            // Fallback to alternative path
-            dagre = require(__DIR__ + '../vendor/dagre/dagre.min.js');
-        } catch (e2) {
-            // dagre may already be loaded globally
-            if (typeof globalThis !== "undefined" && globalThis.dagre) {
-                dagre = globalThis.dagre;
-            }
+        // dagre may already be loaded globally
+        if (typeof globalThis !== "undefined" && globalThis.dagre) {
+            dagre = globalThis.dagre;
         }
     }
 

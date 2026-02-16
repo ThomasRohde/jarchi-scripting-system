@@ -1,23 +1,28 @@
 {
-    "id": "utilities.naming_property_standards_enforcer",
-    "title": "Naming and Property Standards Enforcer",
-    "category": ["Utilities"],
-    "order": 10,
-    "script": {
-        "path": "Naming and Property Standards Enforcer.ajs"
-    },
-    "description": "Validates model elements against configurable naming, property, and documentation standards. Reports violations with auto-fix suggestions for whitespace and default property values.",
-    "tags": ["utilities", "naming", "properties", "standards", "validation", "quality", "governance"],
-    "help": {
-        "markdown_path": "../help/naming-and-property-standards-enforcer.md"
-    },
-    "run": {
-        "danger_level": "medium",
-        "confirm_message": ""
-    },
-    "selection": {
-        "types": [],
-        "min": 0,
-        "require_view": false
-    }
+  "id": "utilities.naming_property_standards_enforcer",
+  "title": "Naming and Property Standards Enforcer",
+  "category": ["Utilities"],
+  "order": 10,
+
+  "script": {
+    "path": "Naming and Property Standards Enforcer.ajs"
+  },
+
+  "description": "Validates model elements against configurable naming, property, and documentation standards. Reports violations with auto-fix suggestions for whitespace and default property values.",
+  "tags": ["utilities", "naming", "properties", "standards", "validation", "quality", "governance"],
+
+  "help": {
+    "markdown_path": "../help/naming-and-property-standards-enforcer.md"
+  },
+
+  "run": {
+    "danger_level": "medium",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
 }

@@ -102,12 +102,15 @@ Claude Code will use the project's skills and context files to generate code tha
 
 | Category | Scripts |
 |----------|---------|
-| **Analysis** | Model Statistics, Find Unused Elements, Find Duplicate Elements, Element Usage Map, Where Used |
+| **Analysis** | Model Statistics, Model Health Check, Find Unused Elements, Find Duplicate Elements, Element Usage Map, Where Used, Relationship Compliance Checker, Strict Layer Violation Detector, Dependency Cycle Analyzer, Impact Path Explorer |
 | **Layout** | ELK Graph Layout (5 algorithms with full options dialog) |
-| **Export** | Copy to Clipboard, Export View to CSV |
-| **Editing** | Rename Elements, Set Property, Reset Visual Appearance |
-| **Cleanup** | Delete Unused Elements |
-| **Utilities** | Model API Server |
+| **Visualization** | Color by Property, Render Chart, Create Chart Definition, Create Dashboard |
+| **Export / Import** | Copy to Clipboard, Export View to CSV, Import from CSV |
+| **Editing** | Rename Elements |
+| **Cleanup** | Delete Unused Elements, Merge Duplicate Elements, Reset Visual Appearance |
+| **Planning** | Roadmap Gap Scaffold Generator |
+| **Utilities** | Set Property, Naming and Property Standards Enforcer, Model Sync |
+| **Server** | Model API Server |
 
 All scripts are accessible through the **Menu** launcher (`Menu.ajs`), which provides category browsing, fuzzy search, and inline help. See **[SCRIPTS.md](SCRIPTS.md)** for detailed descriptions of every script.
 

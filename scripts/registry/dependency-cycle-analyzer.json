@@ -1,23 +1,28 @@
 {
-    "id": "analysis.dependency_cycle_analyzer",
-    "title": "Dependency Cycle Analyzer",
-    "category": ["Analysis"],
-    "order": 20,
-    "script": {
-        "path": "Dependency Cycle Analyzer.ajs"
-    },
-    "description": "Detects dependency cycles in ArchiMate models using Tarjan's SCC algorithm. Reports cycles with impact scoring, concrete cycle paths, and optional view generation.",
-    "tags": ["analysis", "cycles", "dependencies", "graph", "scc", "quality", "architecture"],
-    "help": {
-        "markdown_path": "../help/dependency-cycle-analyzer.md"
-    },
-    "run": {
-        "danger_level": "low",
-        "confirm_message": ""
-    },
-    "selection": {
-        "types": [],
-        "min": 0,
-        "require_view": false
-    }
+  "id": "analysis.dependency_cycle_analyzer",
+  "title": "Dependency Cycle Analyzer",
+  "category": ["Analysis"],
+  "order": 20,
+
+  "script": {
+    "path": "Dependency Cycle Analyzer.ajs"
+  },
+
+  "description": "Detects dependency cycles in ArchiMate models using Tarjan's SCC algorithm. Reports cycles with impact scoring, concrete cycle paths, and optional view generation.",
+  "tags": ["analysis", "cycles", "dependencies", "graph", "scc", "quality", "architecture"],
+
+  "help": {
+    "markdown_path": "../help/dependency-cycle-analyzer.md"
+  },
+
+  "run": {
+    "danger_level": "low",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
 }
