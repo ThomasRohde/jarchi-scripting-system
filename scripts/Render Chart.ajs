@@ -21,9 +21,6 @@ load(__DIR__ + "lib/chartDataCollectors.js");
     var Files = Java.type("java.nio.file.Files");
     var JPath = Java.type("java.nio.file.Paths");
     var System = Java.type("java.lang.System");
-    var IEditorModelManager = Java.type("com.archimatetool.editor.model.IEditorModelManager");
-    var ArchimateModelUtils = Java.type("com.archimatetool.model.util.ArchimateModelUtils");
-    var IArchiveManager = Java.type("com.archimatetool.editor.model.IArchiveManager");
 
     // =========================================================================
     // Helpers
@@ -51,43 +48,22 @@ load(__DIR__ + "lib/chartDataCollectors.js");
         return JPath.get(tmpDir, "jarchi-chart-" + noteId + ".png").toString();
     }
 
-    /**
-     * Get the raw EMF model object for the current model.
-     */
-    function getRawModel() {
-        var models = IEditorModelManager.INSTANCE.getModels();
-        if (models.size() === 1) return models.get(0);
-        var modelId = model.id;
-        for (var i = 0; i < models.size(); i++) {
-            if (String(models.get(i).getId()) === modelId) return models.get(i);
-        }
-        return models.get(0);
-    }
+    // Image position: 4 = MIDDLE_CENTRE (centered on the note)
+    var IMAGE_POSITION_MIDDLE_CENTRE = 4;
 
     /**
-     * Set an image on a note using the raw EMF API.
-     * jArchi's note proxy doesn't expose .image, but the underlying
-     * IDiagramModelNote implements IIconic which has setImagePath().
+     * Set an image on a note using the native jArchi API.
      *
      * @param {Object} noteProxy - jArchi note proxy
      * @param {string} pngFilePath - Path to the PNG file on disk
      */
     function setNoteImage(noteProxy, pngFilePath) {
-        var rawModel = getRawModel();
-        var rawNote = ArchimateModelUtils.getObjectByID(rawModel, noteProxy.id);
-        if (!rawNote) throw new Error("Could not find raw EMF object for note: " + noteProxy.id);
+        // Add image file to the model's archive and get image map
+        var imageMap = model.createImage(pngFilePath);
 
-        // Get the archive manager that stores images inside the .archimate file
-        var archiveManager = rawModel.getAdapter(IArchiveManager.class);
-        if (!archiveManager) throw new Error("Could not get IArchiveManager for model");
-
-        // Read PNG bytes and add to the model's image archive
-        var pngBytes = Files.readAllBytes(JPath.get(pngFilePath));
-        var imagePath = archiveManager.addByteContentEntry(pngFilePath, pngBytes);
-
-        // Set the image path and fill position on the raw note
-        rawNote.setImagePath(imagePath);
-        rawNote.setImagePosition(9); // IIconic.IMAGE_POSITION_FILL
+        // Set the image on the note and center it
+        noteProxy.image = imageMap;
+        noteProxy.imagePosition = IMAGE_POSITION_MIDDLE_CENTRE;
     }
 
     // =========================================================================
@@ -150,6 +126,24 @@ load(__DIR__ + "lib/chartDataCollectors.js");
 
                 log.detail("  Rendering: " + definition.title + " (" + definition.type + ")");
 
+                // Read the note's current bounds and update dimensions to match
+                var bounds = noteObj.bounds;
+                var boundsChanged = false;
+                if (bounds.width > 0 && bounds.width !== definition.width) {
+                    definition.width = bounds.width;
+                    boundsChanged = true;
+                }
+                if (bounds.height > 0 && bounds.height !== definition.height) {
+                    definition.height = bounds.height;
+                    boundsChanged = true;
+                }
+
+                // Persist updated dimensions back to the chart-definition property
+                if (boundsChanged) {
+                    noteObj.prop("chart-definition", JSON.stringify(definition));
+                    log.detail("    Updated chart dimensions to " + definition.width + "x" + definition.height);
+                }
+
                 // Collect data
                 var data = chartDataCollectors.collectData(definition, view);
 
@@ -174,11 +168,10 @@ load(__DIR__ + "lib/chartDataCollectors.js");
                     throw new Error("PNG file was not created at: " + outputPath);
                 }
 
-                // Set image on the note via raw EMF API
-                // (jArchi's note proxy doesn't expose .image)
+                // Set image on the note using native jArchi API
                 setNoteImage(noteObj, outputPath);
 
-                // Clear note text so the image fills cleanly
+                // Clear note text so the image displays cleanly
                 noteObj.setText("");
 
                 rendered++;
