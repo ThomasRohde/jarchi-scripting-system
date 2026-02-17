@@ -2,8 +2,9 @@
  * @name Edit Chart Definition
  * @description Edits an existing chart definition on a selected note element.
  * Parses the chart-definition property, opens a dialog pre-populated with
- * current settings, and saves changes back to the note.
- * @version 1.0.0
+ * current settings, and saves changes back to the note. Includes an Apply
+ * button that renders the chart preview without closing the dialog.
+ * @version 1.1.0
  */
 
 console.clear();
@@ -14,6 +15,8 @@ load(__DIR__ + "lib/swtImports.js");
 load(__DIR__ + "lib/requireModel.js");
 load(__DIR__ + "lib/resolveSelection.js");
 load(__DIR__ + "lib/chartDefinitions.js");
+load(__DIR__ + "vendor/chartjs/chart-sync.js");
+load(__DIR__ + "lib/chartDataCollectors.js");
 
 (function () {
     "use strict";
@@ -28,18 +31,23 @@ load(__DIR__ + "lib/chartDefinitions.js");
     var GridDataFactory = swtImports.GridDataFactory;
     var GridLayoutFactory = swtImports.GridLayoutFactory;
     var IDialogConstants = swtImports.IDialogConstants;
-    var MessageDialog = swtImports.MessageDialog;
     var ExtendedTitleAreaDialog = swtImports.ExtendedTitleAreaDialog;
     var Point = swtImports.Point;
 
     var Spinner = Java.type("org.eclipse.swt.widgets.Spinner");
     var ColorDialog = Java.type("org.eclipse.swt.widgets.ColorDialog");
     var RGB = Java.type("org.eclipse.swt.graphics.RGB");
+    var Files = Java.type("java.nio.file.Files");
+    var JPath = Java.type("java.nio.file.Paths");
+    var System = Java.type("java.lang.System");
 
     var FONT_FAMILIES = [
         "SansSerif", "Serif", "Monospaced",
         "Arial", "Helvetica", "Times New Roman", "Courier New"
     ];
+
+    var APPLY_ID = IDialogConstants.CLIENT_ID + 1;
+    var IMAGE_POSITION_MIDDLE_CENTRE = 4;
 
     // =========================================================================
     // Helpers
@@ -57,9 +65,6 @@ load(__DIR__ + "lib/chartDefinitions.js");
         return h.length === 1 ? "0" + h : h;
     }
 
-    /**
-     * Find all note objects on a view that have a chart-definition property.
-     */
     function findChartNotes(view) {
         var notes = [];
         $(view).find("diagram-model-note").each(function (noteObj) {
@@ -70,9 +75,6 @@ load(__DIR__ + "lib/chartDefinitions.js");
         return notes;
     }
 
-    /**
-     * Extract current visual settings from a definition, falling back to defaults.
-     */
     function extractVisualSettings(definition) {
         var defaults = chartDefinitions.DEFAULT_VISUAL_SETTINGS;
         var vs = definition.visualSettings || {};
@@ -85,6 +87,48 @@ load(__DIR__ + "lib/chartDefinitions.js");
                 (definition.chartOptions && definition.chartOptions.plugins && definition.chartOptions.plugins.legend
                     ? definition.chartOptions.plugins.legend.display !== false : true)
         };
+    }
+
+    // =========================================================================
+    // Chart rendering
+    // =========================================================================
+
+    function renderChartToNote(noteProxy, def, view) {
+        // Re-apply visual settings
+        if (def.visualSettings && def.chartOptions) {
+            chartDefinitions.applyVisualSettings(def.chartOptions, def.visualSettings);
+        }
+
+        var width = def.width || 600;
+        var height = def.height || 400;
+
+        // Collect data
+        var data = chartDataCollectors.collectData(def, view);
+
+        // Build Chart.js config
+        var chartConfig = {
+            type: def.type,
+            data: data,
+            options: def.chartOptions || {},
+            backgroundColor: def.backgroundColor || "#FFFFFF"
+        };
+
+        // Render to temp PNG
+        var tmpDir = System.getProperty("java.io.tmpdir");
+        var outputPath = JPath.get(tmpDir, "jarchi-chart-" + noteProxy.id + ".png").toString();
+        chartSync.renderChart(chartConfig, width, height, outputPath);
+
+        if (!Files.exists(JPath.get(outputPath))) {
+            throw new Error("PNG file was not created at: " + outputPath);
+        }
+
+        // Set image on note
+        var imageMap = model.createImage(outputPath);
+        noteProxy.image = imageMap;
+        noteProxy.imagePosition = IMAGE_POSITION_MIDDLE_CENTRE;
+        noteProxy.setText("");
+
+        return outputPath;
     }
 
     // =========================================================================
@@ -106,7 +150,6 @@ load(__DIR__ + "lib/chartDefinitions.js");
 
         var chartNote = null;
 
-        // Check if user selected a specific chart note
         var selectedNotes = $(selection).filter("diagram-model-note");
         if (selectedNotes.size() > 0) {
             selectedNotes.each(function (noteObj) {
@@ -116,7 +159,6 @@ load(__DIR__ + "lib/chartDefinitions.js");
             });
         }
 
-        // If no selected chart note, find all on view and let user pick
         if (!chartNote) {
             var allChartNotes = findChartNotes(view);
             if (allChartNotes.length === 0) {
@@ -128,7 +170,6 @@ load(__DIR__ + "lib/chartDefinitions.js");
             if (allChartNotes.length === 1) {
                 chartNote = allChartNotes[0];
             } else {
-                // Build a picker list
                 var pickerNames = [];
                 for (var n = 0; n < allChartNotes.length; n++) {
                     var noteDef;
@@ -173,12 +214,11 @@ load(__DIR__ + "lib/chartDefinitions.js");
 
         log.info("Editing chart: " + (definition.title || "(untitled)"));
 
-        // Look up the template for description
         var template = definition.templateId ? chartDefinitions.getTemplate(definition.templateId) : null;
         var vs = extractVisualSettings(definition);
 
         // =================================================================
-        // Dialog
+        // Dialog state
         // =================================================================
 
         var dialogResult = false;
@@ -198,6 +238,73 @@ load(__DIR__ + "lib/chartDefinitions.js");
 
         var w = {};
 
+        // =================================================================
+        // Shared: validate, apply, render
+        // =================================================================
+
+        /** Read current widget values into config. Returns error string or null. */
+        function validateAndReadWidgets() {
+            var title = w.titleText.getText().trim();
+            if (!title) return "Chart title is required.";
+
+            var bgColor = w.bgColorText.getText().trim();
+            if (bgColor && !/^#[0-9a-fA-F]{6}$/.test(bgColor)) {
+                return "Background color must be a hex value like #FFFFFF.";
+            }
+
+            config.title = title;
+            config.width = w.widthSpinner.getSelection();
+            config.height = w.heightSpinner.getSelection();
+            config.scope = w.scopeCombo.getSelectionIndex() === 0 ? "model" : "view";
+            config.fontFamily = FONT_FAMILIES[w.fontFamilyCombo.getSelectionIndex()];
+            config.titleFontSize = w.titleSizeSpinner.getSelection();
+            config.labelFontSize = w.labelSizeSpinner.getSelection();
+            config.backgroundColor = bgColor || "#FFFFFF";
+            config.showTitle = w.showTitleCheck.getSelection();
+            config.showLegend = w.showLegendCheck.getSelection();
+            return null;
+        }
+
+        /** Apply config to definition and persist to note property. */
+        function applyToDefinition() {
+            definition.title = config.title;
+            definition.width = config.width;
+            definition.height = config.height;
+            definition.backgroundColor = config.backgroundColor;
+
+            if (definition.dataSource && definition.dataSource.elementFilter) {
+                definition.dataSource.elementFilter.scope = config.scope;
+            }
+
+            if (definition.chartOptions && definition.chartOptions.plugins && definition.chartOptions.plugins.title) {
+                definition.chartOptions.plugins.title.text = config.title;
+            }
+
+            definition.visualSettings = {
+                fontFamily: config.fontFamily,
+                titleFontSize: config.titleFontSize,
+                labelFontSize: config.labelFontSize,
+                showTitle: config.showTitle,
+                showLegend: config.showLegend
+            };
+
+            if (definition.chartOptions) {
+                chartDefinitions.applyVisualSettings(definition.chartOptions, definition.visualSettings);
+            }
+
+            chartNote.prop("chart-definition", JSON.stringify(definition));
+
+            // Resize note to match dimensions
+            var bounds = chartNote.bounds;
+            if (bounds.width !== config.width || bounds.height !== config.height) {
+                chartNote.bounds = { x: bounds.x, y: bounds.y, width: config.width, height: config.height };
+            }
+        }
+
+        // =================================================================
+        // Dialog
+        // =================================================================
+
         var myDialog = {
             dialog: new ExtendedTitleAreaDialog(shell, {
                 configureShell: function (newShell) {
@@ -215,7 +322,7 @@ load(__DIR__ + "lib/chartDefinitions.js");
 
                     myDialog.dialog.setTitle("Edit Chart Definition");
                     myDialog.dialog.setMessage(
-                        "Modify the chart settings below. Changes will be saved to the note."
+                        "Modify the chart settings below. Use Apply to preview, Save to finish."
                     );
 
                     var container = new Composite(area, SWT.NONE);
@@ -442,33 +549,50 @@ load(__DIR__ + "lib/chartDefinitions.js");
                 },
 
                 createButtonsForButtonBar: function (parent) {
+                    myDialog.dialog.createButton(parent, APPLY_ID, "Apply", false);
                     myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Save", true);
                     myDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", false);
                 },
 
+                buttonPressed: function (buttonId) {
+                    if (buttonId === APPLY_ID) {
+                        var err = validateAndReadWidgets();
+                        if (err) {
+                            myDialog.dialog.setErrorMessage(err);
+                            return;
+                        }
+                        myDialog.dialog.setErrorMessage(null);
+
+                        try {
+                            applyToDefinition();
+                            renderChartToNote(chartNote, definition, view);
+                            myDialog.dialog.setMessage("Chart rendered. Continue editing or Save to finish.");
+                            log.info("Applied and rendered: " + config.title);
+                        } catch (renderErr) {
+                            myDialog.dialog.setErrorMessage("Render failed: " + renderErr.message);
+                            log.error("Apply render failed: " + renderErr.toString());
+                        }
+                        return;
+                    }
+                    Java.super(myDialog.dialog).buttonPressed(buttonId);
+                },
+
                 okPressed: function () {
-                    var title = w.titleText.getText().trim();
-                    if (!title) {
-                        myDialog.dialog.setErrorMessage("Chart title is required.");
+                    var err = validateAndReadWidgets();
+                    if (err) {
+                        myDialog.dialog.setErrorMessage(err);
                         return;
                     }
 
-                    var bgColor = w.bgColorText.getText().trim();
-                    if (bgColor && !/^#[0-9a-fA-F]{6}$/.test(bgColor)) {
-                        myDialog.dialog.setErrorMessage("Background color must be a hex value like #FFFFFF.");
+                    try {
+                        applyToDefinition();
+                        renderChartToNote(chartNote, definition, view);
+                        log.info("Saved and rendered: " + config.title);
+                    } catch (renderErr) {
+                        myDialog.dialog.setErrorMessage("Render failed: " + renderErr.message);
+                        log.error("Save render failed: " + renderErr.toString());
                         return;
                     }
-
-                    config.title = title;
-                    config.width = w.widthSpinner.getSelection();
-                    config.height = w.heightSpinner.getSelection();
-                    config.scope = w.scopeCombo.getSelectionIndex() === 0 ? "model" : "view";
-                    config.fontFamily = FONT_FAMILIES[w.fontFamilyCombo.getSelectionIndex()];
-                    config.titleFontSize = w.titleSizeSpinner.getSelection();
-                    config.labelFontSize = w.labelSizeSpinner.getSelection();
-                    config.backgroundColor = bgColor || "#FFFFFF";
-                    config.showTitle = w.showTitleCheck.getSelection();
-                    config.showLegend = w.showLegendCheck.getSelection();
 
                     dialogResult = true;
                     Java.super(myDialog.dialog).okPressed();
@@ -489,50 +613,6 @@ load(__DIR__ + "lib/chartDefinitions.js");
         }
 
         // =================================================================
-        // Apply changes to definition
-        // =================================================================
-
-        definition.title = config.title;
-        definition.width = config.width;
-        definition.height = config.height;
-        definition.backgroundColor = config.backgroundColor;
-
-        if (definition.dataSource && definition.dataSource.elementFilter) {
-            definition.dataSource.elementFilter.scope = config.scope;
-        }
-
-        // Update title in chartOptions
-        if (definition.chartOptions && definition.chartOptions.plugins && definition.chartOptions.plugins.title) {
-            definition.chartOptions.plugins.title.text = config.title;
-        }
-
-        // Apply visual settings
-        definition.visualSettings = {
-            fontFamily: config.fontFamily,
-            titleFontSize: config.titleFontSize,
-            labelFontSize: config.labelFontSize,
-            showTitle: config.showTitle,
-            showLegend: config.showLegend
-        };
-
-        if (definition.chartOptions) {
-            chartDefinitions.applyVisualSettings(definition.chartOptions, definition.visualSettings);
-        }
-
-        // =================================================================
-        // Save back to note
-        // =================================================================
-
-        chartNote.prop("chart-definition", JSON.stringify(definition));
-
-        // Resize note to match new dimensions
-        var bounds = chartNote.bounds;
-        if (bounds.width !== config.width || bounds.height !== config.height) {
-            chartNote.bounds = { x: bounds.x, y: bounds.y, width: config.width, height: config.height };
-            log.detail("  Note resized to " + config.width + "x" + config.height);
-        }
-
-        // =================================================================
         // Summary
         // =================================================================
 
@@ -543,14 +623,6 @@ load(__DIR__ + "lib/chartDefinitions.js");
             "Size: " + config.width + "x" + config.height;
 
         log.success(summary);
-
-        MessageDialog.openInformation(shell, "Chart Definition Updated",
-            "Chart definition saved successfully.\n\n" +
-            "Title: " + config.title + "\n" +
-            "Type: " + definition.type + "\n" +
-            "Size: " + config.width + "x" + config.height + "\n\n" +
-            "Run 'Render Chart' to regenerate the chart image.");
-
         log.success("Edit Chart Definition complete.");
     } catch (error) {
         log.error("Script failed: " + error.toString());
