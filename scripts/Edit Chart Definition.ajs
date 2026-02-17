@@ -1,9 +1,8 @@
 /**
- * @name Create Chart Definition
- * @description Creates a chart definition on a note element in the active view.
- * Opens a dialog to select from pre-defined EA chart templates, configure
- * dimensions and scope, and optionally initialize data properties on
- * matching model elements.
+ * @name Edit Chart Definition
+ * @description Edits an existing chart definition on a selected note element.
+ * Parses the chart-definition property, opens a dialog pre-populated with
+ * current settings, and saves changes back to the note.
  * @version 1.0.0
  */
 
@@ -53,13 +52,48 @@ load(__DIR__ + "lib/chartDefinitions.js");
         return result;
     }
 
+    function toHex(n) {
+        var h = Math.round(n).toString(16);
+        return h.length === 1 ? "0" + h : h;
+    }
+
+    /**
+     * Find all note objects on a view that have a chart-definition property.
+     */
+    function findChartNotes(view) {
+        var notes = [];
+        $(view).find("diagram-model-note").each(function (noteObj) {
+            if (noteObj.prop("chart-definition")) {
+                notes.push(noteObj);
+            }
+        });
+        return notes;
+    }
+
+    /**
+     * Extract current visual settings from a definition, falling back to defaults.
+     */
+    function extractVisualSettings(definition) {
+        var defaults = chartDefinitions.DEFAULT_VISUAL_SETTINGS;
+        var vs = definition.visualSettings || {};
+        return {
+            fontFamily: vs.fontFamily || defaults.fontFamily,
+            titleFontSize: typeof vs.titleFontSize === "number" ? vs.titleFontSize : defaults.titleFontSize,
+            labelFontSize: typeof vs.labelFontSize === "number" ? vs.labelFontSize : defaults.labelFontSize,
+            showTitle: typeof vs.showTitle === "boolean" ? vs.showTitle : defaults.showTitle,
+            showLegend: typeof vs.showLegend === "boolean" ? vs.showLegend :
+                (definition.chartOptions && definition.chartOptions.plugins && definition.chartOptions.plugins.legend
+                    ? definition.chartOptions.plugins.legend.display !== false : true)
+        };
+    }
+
     // =========================================================================
     // Main
     // =========================================================================
 
     try {
         requireModel();
-        log.header("Create Chart Definition");
+        log.header("Edit Chart Definition");
 
         var view = resolveSelection.activeView();
         if (!view) {
@@ -68,85 +102,108 @@ load(__DIR__ + "lib/chartDefinitions.js");
             return;
         }
 
-        // Get templates
-        var templates = chartDefinitions.getAllTemplates();
-        var templateNames = [];
-        for (var t = 0; t < templates.length; t++) {
-            templateNames.push(templates[t].name);
+        // --- Resolve target chart note ---
+
+        var chartNote = null;
+
+        // Check if user selected a specific chart note
+        var selectedNotes = $(selection).filter("diagram-model-note");
+        if (selectedNotes.size() > 0) {
+            selectedNotes.each(function (noteObj) {
+                if (!chartNote && noteObj.prop("chart-definition")) {
+                    chartNote = noteObj;
+                }
+            });
         }
+
+        // If no selected chart note, find all on view and let user pick
+        if (!chartNote) {
+            var allChartNotes = findChartNotes(view);
+            if (allChartNotes.length === 0) {
+                window.alert("No chart notes found on this view.\n\nUse 'Create Chart Definition' to add chart notes first.");
+                log.warn("No chart notes found on view.");
+                return;
+            }
+
+            if (allChartNotes.length === 1) {
+                chartNote = allChartNotes[0];
+            } else {
+                // Build a picker list
+                var pickerNames = [];
+                for (var n = 0; n < allChartNotes.length; n++) {
+                    var noteDef;
+                    try {
+                        noteDef = JSON.parse(allChartNotes[n].prop("chart-definition"));
+                    } catch (e) {
+                        noteDef = {};
+                    }
+                    pickerNames.push((noteDef.title || "(untitled)") + "  [" + (noteDef.type || "?") + "]");
+                }
+
+                var picked = window.promptSelection("Select a chart note to edit", pickerNames);
+                if (!picked) {
+                    log.warn("Cancelled by user.");
+                    return;
+                }
+
+                for (var p = 0; p < pickerNames.length; p++) {
+                    if (pickerNames[p] === picked) {
+                        chartNote = allChartNotes[p];
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!chartNote) {
+            log.warn("No chart note resolved.");
+            return;
+        }
+
+        // Parse existing definition
+        var defStr = chartNote.prop("chart-definition");
+        var definition;
+        try {
+            definition = JSON.parse(defStr);
+        } catch (parseErr) {
+            window.alert("Failed to parse chart definition JSON:\n" + parseErr.message);
+            log.error("Invalid chart-definition JSON: " + parseErr.message);
+            return;
+        }
+
+        log.info("Editing chart: " + (definition.title || "(untitled)"));
+
+        // Look up the template for description
+        var template = definition.templateId ? chartDefinitions.getTemplate(definition.templateId) : null;
+        var vs = extractVisualSettings(definition);
 
         // =================================================================
         // Dialog
         // =================================================================
 
         var dialogResult = false;
-        var defaults = chartDefinitions.DEFAULT_VISUAL_SETTINGS;
         var config = {
-            templateIndex: 0,
-            title: templates[0].chartConfig.title,
-            width: templates[0].chartConfig.width,
-            height: templates[0].chartConfig.height,
-            scope: "model",
-            initProperties: true,
-            fontFamily: defaults.fontFamily,
-            titleFontSize: defaults.titleFontSize,
-            labelFontSize: defaults.labelFontSize,
-            backgroundColor: "#FFFFFF",
-            showTitle: true,
-            showLegend: true
+            title: definition.title || "",
+            width: definition.width || 600,
+            height: definition.height || 400,
+            scope: (definition.dataSource && definition.dataSource.elementFilter)
+                ? definition.dataSource.elementFilter.scope || "model" : "model",
+            fontFamily: vs.fontFamily,
+            titleFontSize: vs.titleFontSize,
+            labelFontSize: vs.labelFontSize,
+            backgroundColor: definition.backgroundColor || "#FFFFFF",
+            showTitle: vs.showTitle,
+            showLegend: vs.showLegend
         };
 
         var w = {};
-
-        function updateFromTemplate() {
-            if (!w.templateCombo || w.templateCombo.isDisposed()) return;
-            var idx = w.templateCombo.getSelectionIndex();
-            if (idx < 0 || idx >= templates.length) return;
-
-            var tmpl = templates[idx];
-            w.descText.setText(tmpl.description || "");
-            w.titleText.setText(tmpl.chartConfig.title);
-            w.widthSpinner.setSelection(tmpl.chartConfig.width);
-            w.heightSpinner.setSelection(tmpl.chartConfig.height);
-
-            // Show/hide property init checkbox based on whether template has properties
-            var hasProps = tmpl.propertiesCreated && tmpl.propertiesCreated.length > 0;
-            w.initCheck.setEnabled(hasProps);
-            if (!hasProps) w.initCheck.setSelection(false);
-            else w.initCheck.setSelection(true);
-
-            // Update properties preview
-            if (hasProps) {
-                var propNames = [];
-                for (var p = 0; p < tmpl.propertiesCreated.length; p++) {
-                    propNames.push(tmpl.propertiesCreated[p].name);
-                }
-                w.propsLabel.setText("Properties: " + propNames.join(", "));
-            } else {
-                w.propsLabel.setText("No custom properties needed.");
-            }
-
-            // Sync visual settings from template
-            var co = tmpl.chartConfig.chartOptions;
-            if (w.showTitleCheck && !w.showTitleCheck.isDisposed()) {
-                var titleShown = (co && co.plugins && co.plugins.title) ? co.plugins.title.display !== false : true;
-                w.showTitleCheck.setSelection(titleShown);
-            }
-            if (w.showLegendCheck && !w.showLegendCheck.isDisposed()) {
-                var legendShown = (co && co.plugins && co.plugins.legend) ? co.plugins.legend.display !== false : true;
-                w.showLegendCheck.setSelection(legendShown);
-            }
-            if (w.bgColorText && !w.bgColorText.isDisposed()) {
-                w.bgColorText.setText(tmpl.chartConfig.backgroundColor || "#FFFFFF");
-            }
-        }
 
         var myDialog = {
             dialog: new ExtendedTitleAreaDialog(shell, {
                 configureShell: function (newShell) {
                     Java.super(myDialog.dialog).configureShell(newShell);
-                    newShell.setText("Create Chart Definition");
-                    newShell.setMinimumSize(520, 700);
+                    newShell.setText("Edit Chart Definition");
+                    newShell.setMinimumSize(540, 750);
                 },
 
                 isResizable: function () {
@@ -156,39 +213,49 @@ load(__DIR__ + "lib/chartDefinitions.js");
                 createDialogArea: function (parent) {
                     var area = Java.super(myDialog.dialog).createDialogArea(parent);
 
-                    myDialog.dialog.setTitle("Create Chart Definition");
+                    myDialog.dialog.setTitle("Edit Chart Definition");
                     myDialog.dialog.setMessage(
-                        "Select a chart template and configure its settings."
+                        "Modify the chart settings below. Changes will be saved to the note."
                     );
 
                     var container = new Composite(area, SWT.NONE);
-                    GridLayoutFactory.fillDefaults().numColumns(2).margins(12, 8).applyTo(container);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(12, 10).spacing(8, 10).applyTo(container);
                     GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
 
-                    // --- Template selection ---
+                    // --- Info section ---
 
-                    var tmplLabel = new Label(container, SWT.NONE);
-                    tmplLabel.setText("Template:");
-                    GridDataFactory.swtDefaults().applyTo(tmplLabel);
+                    var infoGroup = new Group(container, SWT.NONE);
+                    infoGroup.setText("Chart Info");
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 6).applyTo(infoGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(infoGroup);
 
-                    w.templateCombo = new Combo(container, SWT.READ_ONLY | SWT.DROP_DOWN);
-                    w.templateCombo.setItems(javaStringArray(templateNames));
-                    w.templateCombo.select(0);
-                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.templateCombo);
-                    w.templateCombo.addSelectionListener({
-                        widgetSelected: function () { updateFromTemplate(); },
-                        widgetDefaultSelected: function () {}
-                    });
+                    var typeLabel = new Label(infoGroup, SWT.NONE);
+                    typeLabel.setText("Chart Type:");
+                    GridDataFactory.swtDefaults().applyTo(typeLabel);
 
-                    // --- Description ---
+                    var typeValue = new Label(infoGroup, SWT.NONE);
+                    typeValue.setText(definition.type || "(unknown)");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(typeValue);
 
-                    var descLabel = new Label(container, SWT.NONE);
-                    descLabel.setText("Description:");
-                    GridDataFactory.swtDefaults().align(SWT.BEGINNING, SWT.BEGINNING).applyTo(descLabel);
+                    if (template) {
+                        var tmplLabel = new Label(infoGroup, SWT.NONE);
+                        tmplLabel.setText("Template:");
+                        GridDataFactory.swtDefaults().applyTo(tmplLabel);
 
-                    w.descText = new Text(container, SWT.MULTI | SWT.WRAP | SWT.READ_ONLY | SWT.BORDER);
-                    w.descText.setText(templates[0].description || "");
-                    GridDataFactory.fillDefaults().grab(true, false).hint(SWT.DEFAULT, 150).applyTo(w.descText);
+                        var tmplValue = new Label(infoGroup, SWT.NONE);
+                        tmplValue.setText(template.name);
+                        GridDataFactory.fillDefaults().grab(true, false).applyTo(tmplValue);
+                    }
+
+                    if (template && template.description) {
+                        var descLabel = new Label(infoGroup, SWT.NONE);
+                        descLabel.setText("Description:");
+                        GridDataFactory.swtDefaults().align(SWT.BEGINNING, SWT.BEGINNING).applyTo(descLabel);
+
+                        var descText = new Text(infoGroup, SWT.MULTI | SWT.WRAP | SWT.READ_ONLY | SWT.BORDER);
+                        descText.setText(template.description);
+                        GridDataFactory.fillDefaults().grab(true, false).hint(SWT.DEFAULT, 80).applyTo(descText);
+                    }
 
                     // --- Chart settings group ---
 
@@ -233,7 +300,7 @@ load(__DIR__ + "lib/chartDefinitions.js");
 
                     w.scopeCombo = new Combo(settingsGroup, SWT.READ_ONLY | SWT.DROP_DOWN);
                     w.scopeCombo.setItems(javaStringArray(["Entire Model", "Current View"]));
-                    w.scopeCombo.select(0);
+                    w.scopeCombo.select(config.scope === "view" ? 1 : 0);
                     GridDataFactory.fillDefaults().grab(true, false).span(3, 1).applyTo(w.scopeCombo);
 
                     // --- Visual Settings group ---
@@ -250,7 +317,8 @@ load(__DIR__ + "lib/chartDefinitions.js");
 
                     w.fontFamilyCombo = new Combo(visualGroup, SWT.READ_ONLY | SWT.DROP_DOWN);
                     w.fontFamilyCombo.setItems(javaStringArray(FONT_FAMILIES));
-                    w.fontFamilyCombo.select(0);
+                    var fontIdx = FONT_FAMILIES.indexOf(config.fontFamily);
+                    w.fontFamilyCombo.select(fontIdx >= 0 ? fontIdx : 0);
                     GridDataFactory.fillDefaults().grab(true, false).span(3, 1).applyTo(w.fontFamilyCombo);
 
                     // Title Font Size
@@ -305,10 +373,6 @@ load(__DIR__ + "lib/chartDefinitions.js");
                             }
                             var result = dlg.open();
                             if (result) {
-                                function toHex(n) {
-                                    var h = Math.round(n).toString(16);
-                                    return h.length === 1 ? "0" + h : h;
-                                }
                                 w.bgColorText.setText("#" + toHex(result.red) + toHex(result.green) + toHex(result.blue));
                             }
                         },
@@ -327,30 +391,58 @@ load(__DIR__ + "lib/chartDefinitions.js");
                     w.showLegendCheck.setSelection(config.showLegend);
                     GridDataFactory.fillDefaults().span(2, 1).applyTo(w.showLegendCheck);
 
-                    // --- Properties group ---
+                    // --- Data Source info (read-only) ---
 
-                    var propsGroup = new Group(container, SWT.NONE);
-                    propsGroup.setText("Data Properties");
-                    GridLayoutFactory.fillDefaults().numColumns(1).margins(8, 6).applyTo(propsGroup);
-                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(propsGroup);
+                    var dsGroup = new Group(container, SWT.NONE);
+                    dsGroup.setText("Data Source");
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 6).applyTo(dsGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(dsGroup);
 
-                    w.initCheck = new Button(propsGroup, SWT.CHECK);
-                    w.initCheck.setText("Initialize data properties on matching elements");
-                    w.initCheck.setSelection(config.initProperties);
-                    w.initCheck.setToolTipText("Sets default values on elements where the property is not yet set.");
-                    GridDataFactory.fillDefaults().applyTo(w.initCheck);
+                    var methodLabel = new Label(dsGroup, SWT.NONE);
+                    methodLabel.setText("Method:");
+                    GridDataFactory.swtDefaults().applyTo(methodLabel);
 
-                    w.propsLabel = new Label(propsGroup, SWT.WRAP);
-                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.propsLabel);
+                    var methodValue = new Label(dsGroup, SWT.NONE);
+                    methodValue.setText(
+                        definition.dataSource ? definition.dataSource.method || "(none)" : "(none)"
+                    );
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(methodValue);
 
-                    // Initial update
-                    updateFromTemplate();
+                    if (definition.dataSource) {
+                        var ds = definition.dataSource;
+                        var detailParts = [];
+
+                        if (ds.groupByProperty) detailParts.push("Group by: " + ds.groupByProperty);
+                        if (ds.segmentByProperty) detailParts.push("Segment by: " + ds.segmentByProperty);
+                        if (ds.xProperty) detailParts.push("X: " + ds.xProperty);
+                        if (ds.yProperty) detailParts.push("Y: " + ds.yProperty);
+                        if (ds.rProperty) detailParts.push("Size: " + ds.rProperty);
+                        if (ds.datasets) detailParts.push("Datasets: " + ds.datasets.length);
+                        if (ds.topN) detailParts.push("Top N: " + ds.topN);
+
+                        if (ds.elementFilter && ds.elementFilter.types && ds.elementFilter.types.length > 0) {
+                            var typeCount = ds.elementFilter.types.length;
+                            detailParts.push("Types: " + typeCount + " type" + (typeCount > 1 ? "s" : ""));
+                        }
+
+                        if (detailParts.length > 0) {
+                            var detailLabel = new Label(dsGroup, SWT.NONE);
+                            detailLabel.setText("Details:");
+                            GridDataFactory.swtDefaults().align(SWT.BEGINNING, SWT.BEGINNING).applyTo(detailLabel);
+
+                            var detailValue = new Text(dsGroup, SWT.MULTI | SWT.WRAP | SWT.READ_ONLY | SWT.BORDER);
+                            detailValue.setText(detailParts.join("\n"));
+                            GridDataFactory.fillDefaults().grab(true, false)
+                                .hint(SWT.DEFAULT, Math.min(detailParts.length * 22, 100))
+                                .applyTo(detailValue);
+                        }
+                    }
 
                     return area;
                 },
 
                 createButtonsForButtonBar: function (parent) {
-                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Create", true);
+                    myDialog.dialog.createButton(parent, IDialogConstants.OK_ID, "Save", true);
                     myDialog.dialog.createButton(parent, IDialogConstants.CANCEL_ID, "Cancel", false);
                 },
 
@@ -367,14 +459,10 @@ load(__DIR__ + "lib/chartDefinitions.js");
                         return;
                     }
 
-                    config.templateIndex = w.templateCombo.getSelectionIndex();
                     config.title = title;
                     config.width = w.widthSpinner.getSelection();
                     config.height = w.heightSpinner.getSelection();
                     config.scope = w.scopeCombo.getSelectionIndex() === 0 ? "model" : "view";
-                    config.initProperties = w.initCheck.getSelection();
-
-                    // Visual settings
                     config.fontFamily = FONT_FAMILIES[w.fontFamilyCombo.getSelectionIndex()];
                     config.titleFontSize = w.titleSizeSpinner.getSelection();
                     config.labelFontSize = w.labelSizeSpinner.getSelection();
@@ -387,7 +475,7 @@ load(__DIR__ + "lib/chartDefinitions.js");
                 },
 
                 getInitialSize: function () {
-                    return new Point(580, 750);
+                    return new Point(600, 850);
                 }
             })
         };
@@ -401,83 +489,47 @@ load(__DIR__ + "lib/chartDefinitions.js");
         }
 
         // =================================================================
-        // Create chart definition
+        // Apply changes to definition
         // =================================================================
 
-        var template = templates[config.templateIndex];
-        log.info("Creating chart definition from template: " + template.name);
+        definition.title = config.title;
+        definition.width = config.width;
+        definition.height = config.height;
+        definition.backgroundColor = config.backgroundColor;
 
-        var definition = chartDefinitions.createDefinition(template.id, {
-            title: config.title,
-            width: config.width,
-            height: config.height,
-            scope: config.scope,
-            backgroundColor: config.backgroundColor,
-            visualSettings: {
-                fontFamily: config.fontFamily,
-                titleFontSize: config.titleFontSize,
-                labelFontSize: config.labelFontSize,
-                showTitle: config.showTitle,
-                showLegend: config.showLegend
-            }
-        });
+        if (definition.dataSource && definition.dataSource.elementFilter) {
+            definition.dataSource.elementFilter.scope = config.scope;
+        }
 
-        // =================================================================
-        // Create note on view
-        // =================================================================
+        // Update title in chartOptions
+        if (definition.chartOptions && definition.chartOptions.plugins && definition.chartOptions.plugins.title) {
+            definition.chartOptions.plugins.title.text = config.title;
+        }
 
-        // Place note at a reasonable position
-        var noteX = 50;
-        var noteY = 50;
+        // Apply visual settings
+        definition.visualSettings = {
+            fontFamily: config.fontFamily,
+            titleFontSize: config.titleFontSize,
+            labelFontSize: config.labelFontSize,
+            showTitle: config.showTitle,
+            showLegend: config.showLegend
+        };
 
-        // Scale note size to match chart dimensions (at roughly 1:1 pixel ratio)
-        var noteWidth = Math.min(config.width, 800);
-        var noteHeight = Math.min(config.height, 600);
-
-        var noteObj = view.createObject("note", noteX, noteY, noteWidth, noteHeight);
-        noteObj.setText(config.title);
-        noteObj.borderType = 2; // BORDER_NONE — clean look for chart rendering
-
-        // Store chart definition as JSON property
-        noteObj.prop("chart-definition", JSON.stringify(definition));
-
-        log.detail("  Note created: " + noteObj.id);
-        log.detail("  Definition stored as 'chart-definition' property");
+        if (definition.chartOptions) {
+            chartDefinitions.applyVisualSettings(definition.chartOptions, definition.visualSettings);
+        }
 
         // =================================================================
-        // Initialize data properties (if requested)
+        // Save back to note
         // =================================================================
 
-        if (config.initProperties && template.propertiesCreated && template.propertiesCreated.length > 0) {
-            log.info("Initializing data properties...");
+        chartNote.prop("chart-definition", JSON.stringify(definition));
 
-            var totalInitialized = 0;
-            for (var p = 0; p < template.propertiesCreated.length; p++) {
-                var propDef = template.propertiesCreated[p];
-                var initialized = 0;
-
-                // jArchi $() doesn't support comma-separated type selectors
-                var targetCollection;
-                if (propDef.targetTypes.length === 1) {
-                    targetCollection = $(propDef.targetTypes[0]);
-                } else {
-                    targetCollection = $(propDef.targetTypes[0]);
-                    for (var q = 1; q < propDef.targetTypes.length; q++) {
-                        targetCollection = targetCollection.add($(propDef.targetTypes[q]));
-                    }
-                }
-                targetCollection.each(function (el) {
-                    if (el.prop(propDef.name) === null) {
-                        el.prop(propDef.name, propDef.defaultValue);
-                        initialized++;
-                    }
-                });
-
-                totalInitialized += initialized;
-                log.detail("  " + propDef.name + ": initialized on " + initialized + " elements");
-            }
-
-            log.detail("  Total properties initialized: " + totalInitialized);
+        // Resize note to match new dimensions
+        var bounds = chartNote.bounds;
+        if (bounds.width !== config.width || bounds.height !== config.height) {
+            chartNote.bounds = { x: bounds.x, y: bounds.y, width: config.width, height: config.height };
+            log.detail("  Note resized to " + config.width + "x" + config.height);
         }
 
         // =================================================================
@@ -485,20 +537,21 @@ load(__DIR__ + "lib/chartDefinitions.js");
         // =================================================================
 
         var summary =
-            "Chart definition created on view '" + (view.name || "unnamed") + "'\n" +
-            "Template: " + template.name + "\n" +
+            "Chart definition updated on view '" + (view.name || "unnamed") + "'\n" +
+            "Title: " + config.title + "\n" +
             "Type: " + definition.type + "\n" +
             "Size: " + config.width + "x" + config.height;
 
         log.success(summary);
 
-        MessageDialog.openInformation(shell, "Chart Definition Created",
-            "Chart note created successfully.\n\n" +
-            "Template: " + template.name + "\n" +
-            "Chart type: " + definition.type + "\n\n" +
-            "Run 'Render Chart' to generate the chart image.");
+        MessageDialog.openInformation(shell, "Chart Definition Updated",
+            "Chart definition saved successfully.\n\n" +
+            "Title: " + config.title + "\n" +
+            "Type: " + definition.type + "\n" +
+            "Size: " + config.width + "x" + config.height + "\n\n" +
+            "Run 'Render Chart' to regenerate the chart image.");
 
-        log.success("Create Chart Definition complete.");
+        log.success("Edit Chart Definition complete.");
     } catch (error) {
         log.error("Script failed: " + error.toString());
         if (error.stack) log.error(error.stack);

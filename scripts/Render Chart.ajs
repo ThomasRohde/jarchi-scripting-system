@@ -14,6 +14,7 @@ load(__DIR__ + "lib/requireModel.js");
 load(__DIR__ + "lib/resolveSelection.js");
 load(__DIR__ + "vendor/chartjs/chart-sync.js");
 load(__DIR__ + "lib/chartDataCollectors.js");
+load(__DIR__ + "lib/chartDefinitions.js");
 
 (function () {
     "use strict";
@@ -125,6 +126,11 @@ load(__DIR__ + "lib/chartDataCollectors.js");
                 var definition = JSON.parse(defStr);
 
                 log.detail("  Rendering: " + definition.title + " (" + definition.type + ")");
+
+                // Re-apply visual settings if present (ensures fonts are current)
+                if (definition.visualSettings && definition.chartOptions) {
+                    chartDefinitions.applyVisualSettings(definition.chartOptions, definition.visualSettings);
+                }
 
                 // Read the note's current bounds and update dimensions to match
                 var bounds = noteObj.bounds;

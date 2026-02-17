@@ -51,6 +51,18 @@
     var FONT_LEGEND = { size: 13 };
     var LAYOUT_PADDING = { top: 8, right: 16, bottom: 8, left: 8 };
 
+    // =========================================================================
+    // Visual settings defaults
+    // =========================================================================
+
+    var DEFAULT_VISUAL_SETTINGS = {
+        fontFamily: "SansSerif",
+        titleFontSize: FONT_TITLE.size,   // 20
+        labelFontSize: FONT_TICK.size,    // 13
+        showTitle: true,
+        showLegend: null                  // null = use template default
+    };
+
     /** Integer-only count axis config */
     function countAxis(axisTitle) {
         return {
@@ -654,6 +666,57 @@
         return Paths.get(__DIR__ + "data/chart-definitions.json");
     }
 
+    /**
+     * Walk the chartOptions tree and apply visual overrides.
+     * Mutates chartOptions in place.
+     *
+     * @param {Object} chartOptions - Chart.js options object from a definition
+     * @param {Object} vs - Visual settings: { fontFamily, titleFontSize, labelFontSize, showTitle, showLegend }
+     */
+    function applyVisualSettings(chartOptions, vs) {
+        if (!chartOptions || !vs) return;
+
+        // Walk tree looking for font objects and apply family + size overrides
+        function walkFonts(obj, path) {
+            if (!obj || typeof obj !== "object" || Array.isArray(obj)) return;
+            var keys = Object.keys(obj);
+            for (var k = 0; k < keys.length; k++) {
+                var key = keys[k];
+                var childPath = path ? path + "." + key : key;
+                if (key === "font" && typeof obj[key] === "object" && obj[key] !== null) {
+                    // Apply font family
+                    if (vs.fontFamily) {
+                        obj[key].family = vs.fontFamily;
+                    }
+                    // Apply font size: title gets titleFontSize, everything else gets labelFontSize
+                    var isTitle = childPath === "plugins.title.font";
+                    if (isTitle && typeof vs.titleFontSize === "number") {
+                        obj[key].size = vs.titleFontSize;
+                    } else if (!isTitle && typeof vs.labelFontSize === "number") {
+                        obj[key].size = vs.labelFontSize;
+                    }
+                } else {
+                    walkFonts(obj[key], childPath);
+                }
+            }
+        }
+        walkFonts(chartOptions, "");
+
+        // Title visibility
+        if (typeof vs.showTitle === "boolean") {
+            if (chartOptions.plugins && chartOptions.plugins.title) {
+                chartOptions.plugins.title.display = vs.showTitle;
+            }
+        }
+
+        // Legend visibility
+        if (typeof vs.showLegend === "boolean") {
+            if (chartOptions.plugins && chartOptions.plugins.legend) {
+                chartOptions.plugins.legend.display = vs.showLegend;
+            }
+        }
+    }
+
     // =========================================================================
     // Public API
     // =========================================================================
@@ -723,6 +786,12 @@
             definition.chartOptions.plugins.title.text = definition.title;
         }
 
+        // Apply visual settings overrides
+        if (overrides.visualSettings) {
+            definition.visualSettings = deepCopy(overrides.visualSettings);
+            applyVisualSettings(definition.chartOptions, overrides.visualSettings);
+        }
+
         return definition;
     }
 
@@ -736,7 +805,9 @@
         getAllTemplates: getAllTemplates,
         loadCustomTemplates: loadCustomTemplates,
         saveCustomTemplates: saveCustomTemplates,
-        createDefinition: createDefinition
+        createDefinition: createDefinition,
+        applyVisualSettings: applyVisualSettings,
+        DEFAULT_VISUAL_SETTINGS: DEFAULT_VISUAL_SETTINGS
     };
 
     if (typeof globalThis !== "undefined") globalThis.chartDefinitions = chartDefinitions;

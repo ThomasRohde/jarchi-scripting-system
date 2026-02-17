@@ -36,6 +36,7 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 | **Color by Property** | Colors diagram objects on the active view based on a property value. Each unique property value gets a distinct color from a built-in palette. Double-click any row in the preview table to open a native color picker. |
 | **Render Chart** | Renders chart images on note elements that have a `chart-definition` property. Collects data from the model, renders via Chart.js to PNG, and sets the image on the note. Processes selected notes or all chart notes on the view. |
 | **Create Chart Definition** | Creates a chart definition on a note element in the active view. Opens a dialog to select from pre-defined EA chart templates, configure dimensions and scope, and optionally initialize data properties on matching model elements. |
+| **Edit Chart Definition** | Edits an existing chart definition on a selected note element. Parses the stored chart-definition property, opens a dialog pre-populated with current settings (title, dimensions, scope, font, colors, visibility), and saves changes back to the note. Works on selected notes or lets you pick from all chart notes on the view. |
 | **Create Dashboard** | Creates a new dashboard view with all 12 chart templates in a symmetric 4x3 grid. Initializes missing data properties with random values, creates sample elements for missing types, and renders all charts automatically. |
 
 ## Editing
