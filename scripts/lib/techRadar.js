@@ -502,13 +502,14 @@
                 g.drawOval(bx - brad, by - brad, brad * 2, brad * 2);
             }
 
-            // Number label inside blip
+            // Number label inside blip — shift to triangle centroid when needed
+            var labelY = blip.isNew ? by + Math.round((brad - 2) / 3) : by;
             g.setColor(Color.WHITE);
             g.setFont(new Font("SansSerif", Font.BOLD, RADAR.blipFont));
             var fm = g.getFontMetrics();
             var ns = String(n);
             drawText(g, ns, bx - fm.stringWidth(new JString(ns)) / 2,
-                            by + fm.getAscent() / 2 - 1);
+                            labelY + fm.getAscent() / 2 - 1);
         });
 
         // ── Title ───────────────────────────────────────────────────────
