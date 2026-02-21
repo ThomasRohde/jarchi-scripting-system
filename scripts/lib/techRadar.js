@@ -29,13 +29,16 @@
 
     // ── Radar configuration ─────────────────────────────────────────────────
     var RADAR = {
-        W: 1100,
-        margin: 55,
+        // Image dimensions
+        W:      1100,                        // image width (px)
+        margin: 55,                          // space between radar circle and image edge
 
+        // Content
+        title:     "Technology Radar",
         rings:     ["Adopt",     "Trial",       "Assess",      "Hold"],
         quadrants: ["Platforms", "Tools",       "Languages &\nFrameworks", "Techniques"],
 
-        // Light-mode ring fill colours (semi-transparent)
+        // Colours — ring fills (semi-transparent)
         ringFill: [
             new Color(46,  204, 113,  55),   // Adopt  — green
             new Color(52,  152, 219,  55),   // Trial  — blue
@@ -48,10 +51,43 @@
             new Color(243, 156,  18),
             new Color(192,  57,  43)
         ],
-
         bgColor:   new Color(252, 252, 255),
         textColor: new Color(44,  62,  80),
-        blipR:     11
+
+        // Blips
+        blipR:      14,                      // blip radius (px)
+        blipAlpha:  210,                     // blip fill opacity (0-255)
+        blipFont:   9,                       // number label inside blip (pt)
+
+        // Placement — collision avoidance tuning
+        padDeg:         12,                  // angular padding from quadrant edges (°)
+        minDistPad:     4,                   // extra gap between blip edges (px)
+        maxLanes:       3,                   // max radial lanes per cell
+        maxPasses:      10,                  // collision resolution iterations
+        jitterAngle:    0.9,                 // angular jitter (0–2; 1.0 = ±50% of slot)
+        jitterRadius:   0.3,                 // radial jitter  (0–2; 1.0 = ±50% of lane)
+
+        // Font sizes (pt)
+        titleFont:       26,
+        ringLabelFont:   12,
+        quadLabelFont:   18,
+        quadLabelOffset: 40,                 // quadrant label distance beyond outer ring (px)
+
+        // Layout
+        titleH:          50,                 // space above the radar for title (px)
+        ringBorderW:     1.5,                // ring circle stroke width
+        dividerDash:     [7.0, 5.0],         // quadrant divider dash pattern [dash, gap]
+        dividerOverhang: 8,                  // divider overshoot past outer ring (px)
+
+        // Legend
+        legendGap:        28,                // gap between radar bottom and legend (px)
+        legendHeaderH:    20,                // legend header row height (px)
+        legendRowH:       16,                // legend entry row height (px)
+        legendPadBottom:  12,                // padding below last legend row (px)
+        legendHeaderFont: 12,                // legend quadrant header font size (pt)
+        legendFont:       10,                // legend entry font size (pt)
+        legendDotR:       9,                 // legend colour dot diameter (px)
+        legendMaxName:    28                 // truncate names longer than this
     };
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -123,10 +159,6 @@
 
     // ── Batch blip placement with collision avoidance ────────────────────
 
-    var PAD_DEG = 12;        // angular padding from quadrant boundaries
-    var MIN_DIST_PAD = 4;    // extra gap between blip edges (px)
-    var MAX_PASSES = 10;     // collision resolution iterations
-
     /**
      * Place blips within a single ring-quadrant cell using stratified angular
      * distribution with optional multi-lane radial layout.
@@ -134,18 +166,18 @@
     function placeCell(blips, indices, qi, ri, innerR, outerR, cx, cy, blipR) {
         if (indices.length === 0) return [];
 
-        var minDist  = blipR * 2 + MIN_DIST_PAD;
+        var minDist  = blipR * 2 + RADAR.minDistPad;
         var bandW    = outerR - innerR;
         var midR     = (innerR + outerR) / 2;
 
         // Usable arc in degrees (pad from both quadrant edges)
-        var arcStart = qi * 90 + PAD_DEG;
-        var arcSpan  = 90 - 2 * PAD_DEG;  // 66°
+        var arcStart = qi * 90 + RADAR.padDeg;
+        var arcSpan  = 90 - 2 * RADAR.padDeg;
 
         // How many blips fit per arc at the mid-radius without overlapping?
         var arcLen      = midR * (arcSpan * Math.PI / 180);
         var perArc      = Math.max(1, Math.floor(arcLen / minDist));
-        var laneCount   = Math.min(3, Math.max(1, Math.ceil(indices.length / perArc)));
+        var laneCount   = Math.min(RADAR.maxLanes, Math.max(1, Math.ceil(indices.length / perArc)));
 
         // Radial lane centres — evenly spaced within the band with padding
         var lanePad  = blipR + 2;
@@ -181,8 +213,8 @@
 
                 // Seeded jitter for organic feel
                 var seed = seeded(blip.id + blip.name);
-                var jitterA = (seed.t - 0.5) * 0.9 * slotW;  // ±45% of slot width
-                var jitterR = (seed.r - 0.5) * 0.3 * (usableR / laneCount);  // ±15% of lane band
+                var jitterA = (seed.t - 0.5) * RADAR.jitterAngle * slotW;
+                var jitterR = (seed.r - 0.5) * RADAR.jitterRadius * (usableR / laneCount);
 
                 var deg = baseDeg + jitterA;
                 var rad = deg * Math.PI / 180;
@@ -223,8 +255,8 @@
         // Clamp angle to quadrant (with padding)
         var angle = Math.atan2(dy, dx) * 180 / Math.PI;
         if (angle < 0) angle += 360;
-        var qStart = qi * 90 + PAD_DEG;
-        var qEnd   = qi * 90 + 90 - PAD_DEG;
+        var qStart = qi * 90 + RADAR.padDeg;
+        var qEnd   = qi * 90 + 90 - RADAR.padDeg;
         if (angle < qStart || angle > qEnd) {
             var clamped = Math.max(qStart, Math.min(qEnd, angle));
             var rad = clamped * Math.PI / 180;
@@ -240,9 +272,9 @@
      * Resolve remaining overlaps by nudging colliding pairs apart.
      */
     function resolveCollisions(positions, blips, ringR, cx, cy, blipR) {
-        var minDist = blipR * 2 + MIN_DIST_PAD;
+        var minDist = blipR * 2 + RADAR.minDistPad;
 
-        for (var pass = 0; pass < MAX_PASSES; pass++) {
+        for (var pass = 0; pass < RADAR.maxPasses; pass++) {
             var moved = false;
             for (var i = 0; i < positions.length; i++) {
                 for (var j = i + 1; j < positions.length; j++) {
@@ -330,11 +362,11 @@
             maxPerQuad = Math.max(maxPerQuad, legendRows[qi].length);
         }
 
-        var titleH       = 50;                 // space above the radar for title
-        var rowH         = 16;
-        var legendGap    = 28;                  // gap between radar bottom and legend
-        var legendHeaderH = 20;
-        var legendH      = legendHeaderH + maxPerQuad * rowH + 12;
+        var titleH       = RADAR.titleH;
+        var rowH         = RADAR.legendRowH;
+        var legendGap    = RADAR.legendGap;
+        var legendHeaderH = RADAR.legendHeaderH;
+        var legendH      = legendHeaderH + maxPerQuad * rowH + RADAR.legendPadBottom;
 
         var cy = titleH + maxR;                 // radar centre
         var H  = Math.round(cy + maxR + legendGap + legendH);
@@ -371,7 +403,7 @@
         }
 
         // ── Ring borders ────────────────────────────────────────────────
-        g.setStroke(new BasicStroke(1.5));
+        g.setStroke(new BasicStroke(RADAR.ringBorderW));
         for (var ri = 0; ri < nR; ri++) {
             g.setColor(RADAR.ringBorder[ri]);
             var ro = ringR[ri];
@@ -380,19 +412,20 @@
         }
 
         // ── Quadrant dividers (dashed) ──────────────────────────────────
-        var dashArr = Java.to([7.0, 5.0], "float[]");
+        var dashArr = Java.to(RADAR.dividerDash, "float[]");
         var dashed  = new BasicStroke(1.0, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
                                       10.0, dashArr, 0.0);
         g.setStroke(dashed);
         g.setColor(new Color(180, 185, 195, 160));
-        g.drawLine(Math.round(cx), Math.round(cy - maxR - 8),
-                   Math.round(cx), Math.round(cy + maxR + 8));
-        g.drawLine(Math.round(cx - maxR - 8), Math.round(cy),
-                   Math.round(cx + maxR + 8), Math.round(cy));
+        var doh = RADAR.dividerOverhang;
+        g.drawLine(Math.round(cx), Math.round(cy - maxR - doh),
+                   Math.round(cx), Math.round(cy + maxR + doh));
+        g.drawLine(Math.round(cx - maxR - doh), Math.round(cy),
+                   Math.round(cx + maxR + doh), Math.round(cy));
 
         // ── Ring name labels (centred along horizontal axis) ────────────
         g.setStroke(new BasicStroke(1.0));
-        g.setFont(new Font("SansSerif", Font.BOLD, 12));
+        g.setFont(new Font("SansSerif", Font.BOLD, RADAR.ringLabelFont));
         for (var ri = 0; ri < nR; ri++) {
             var ro  = ringR[ri];
             var ri2 = ri > 0 ? ringR[ri - 1] : 0;
@@ -412,10 +445,10 @@
         //
         // Placed on the 45° diagonal at a radial distance just outside the
         // outermost ring.  cos(45°) ≈ 0.707 converts radial → x/y offset.
-        g.setFont(new Font("SansSerif", Font.ITALIC + Font.BOLD, 18));
+        g.setFont(new Font("SansSerif", Font.ITALIC + Font.BOLD, RADAR.quadLabelFont));
         g.setColor(new Color(100, 110, 130));
 
-        var labelDist = maxR + 40;     // ← nudge: increase to push labels further from circle
+        var labelDist = maxR + RADAR.quadLabelOffset;
         var d45       = labelDist * Math.cos(Math.PI / 4);   // x/y offset
 
         var cornerPositions = [
@@ -449,7 +482,7 @@
             var by   = Math.round(pos.y);
 
             var bc   = RADAR.ringBorder[blip.ring];
-            var fill = new Color(bc.getRed(), bc.getGreen(), bc.getBlue(), 210);
+            var fill = new Color(bc.getRed(), bc.getGreen(), bc.getBlue(), RADAR.blipAlpha);
 
             if (blip.isNew) {
                 g.setColor(fill);
@@ -471,7 +504,7 @@
 
             // Number label inside blip
             g.setColor(Color.WHITE);
-            g.setFont(new Font("SansSerif", Font.BOLD, 9));
+            g.setFont(new Font("SansSerif", Font.BOLD, RADAR.blipFont));
             var fm = g.getFontMetrics();
             var ns = String(n);
             drawText(g, ns, bx - fm.stringWidth(new JString(ns)) / 2,
@@ -479,9 +512,9 @@
         });
 
         // ── Title ───────────────────────────────────────────────────────
-        g.setFont(new Font("SansSerif", Font.BOLD, 26));
+        g.setFont(new Font("SansSerif", Font.BOLD, RADAR.titleFont));
         g.setColor(RADAR.textColor);
-        var title = "Technology Radar";
+        var title = RADAR.title;
         var fm    = g.getFontMetrics();
         drawText(g, title, cx - fm.stringWidth(new JString(title)) / 2, 36);
 
@@ -492,21 +525,21 @@
         for (var qi = 0; qi < 4; qi++) {
             var lx = qi * colW + 8;
 
-            g.setFont(new Font("SansSerif", Font.BOLD, 12));
+            g.setFont(new Font("SansSerif", Font.BOLD, RADAR.legendHeaderFont));
             g.setColor(new Color(60, 70, 90));
             drawText(g, RADAR.quadrants[qi].replace("\n", " "), lx, legTopY);
 
-            g.setFont(new Font("SansSerif", Font.PLAIN, 10));
+            g.setFont(new Font("SansSerif", Font.PLAIN, RADAR.legendFont));
             var rows = legendRows[qi];
             for (var li = 0; li < rows.length; li++) {
                 var entry = rows[li];
                 var ry    = legTopY + legendHeaderH + li * rowH;
                 var dc    = RADAR.ringBorder[entry.ring];
                 g.setColor(new Color(dc.getRed(), dc.getGreen(), dc.getBlue(), 220));
-                g.fillOval(lx, ry - 8, 9, 9);
+                g.fillOval(lx, ry - RADAR.legendDotR + 1, RADAR.legendDotR, RADAR.legendDotR);
                 g.setColor(RADAR.textColor);
                 var lbl = entry.n + ". " + entry.name;
-                if (lbl.length > 28) lbl = lbl.substring(0, 26) + "\u2026";
+                if (lbl.length > RADAR.legendMaxName) lbl = lbl.substring(0, RADAR.legendMaxName - 2) + "\u2026";
                 drawText(g, lbl, lx + 12, ry);
             }
         }
