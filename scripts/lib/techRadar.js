@@ -121,13 +121,196 @@
         return { r: a / 0xffffffff, t: b / 0xffffffff };
     }
 
-    function blipXY(cx, cy, qi, ri, innerR, outerR, seed) {
-        var s    = seeded(seed);
-        var band = innerR + (s.r * 0.72 + 0.14) * (outerR - innerR);
-        var pad  = 10;
-        var deg  = qi * 90 + pad + s.t * (90 - 2 * pad);
-        var rad  = deg * Math.PI / 180;
-        return { x: cx + band * Math.cos(rad), y: cy + band * Math.sin(rad) };
+    // ── Batch blip placement with collision avoidance ────────────────────
+
+    var PAD_DEG = 12;        // angular padding from quadrant boundaries
+    var MIN_DIST_PAD = 4;    // extra gap between blip edges (px)
+    var MAX_PASSES = 10;     // collision resolution iterations
+
+    /**
+     * Place blips within a single ring-quadrant cell using stratified angular
+     * distribution with optional multi-lane radial layout.
+     */
+    function placeCell(blips, indices, qi, ri, innerR, outerR, cx, cy, blipR) {
+        if (indices.length === 0) return [];
+
+        var minDist  = blipR * 2 + MIN_DIST_PAD;
+        var bandW    = outerR - innerR;
+        var midR     = (innerR + outerR) / 2;
+
+        // Usable arc in degrees (pad from both quadrant edges)
+        var arcStart = qi * 90 + PAD_DEG;
+        var arcSpan  = 90 - 2 * PAD_DEG;  // 66°
+
+        // How many blips fit per arc at the mid-radius without overlapping?
+        var arcLen      = midR * (arcSpan * Math.PI / 180);
+        var perArc      = Math.max(1, Math.floor(arcLen / minDist));
+        var laneCount   = Math.min(3, Math.max(1, Math.ceil(indices.length / perArc)));
+
+        // Radial lane centres — evenly spaced within the band with padding
+        var lanePad  = blipR + 2;
+        var usableR  = bandW - 2 * lanePad;
+        var lanes    = [];
+        for (var l = 0; l < laneCount; l++) {
+            if (laneCount === 1) {
+                lanes.push(midR);
+            } else {
+                lanes.push(innerR + lanePad + usableR * (l + 0.5) / laneCount);
+            }
+        }
+
+        // Round-robin assign blips to lanes, then distribute angularly per lane
+        var laneBuckets = [];
+        for (var l = 0; l < laneCount; l++) laneBuckets.push([]);
+        for (var i = 0; i < indices.length; i++) {
+            laneBuckets[i % laneCount].push(indices[i]);
+        }
+
+        var results = [];
+        for (var l = 0; l < laneCount; l++) {
+            var bucket = laneBuckets[l];
+            if (bucket.length === 0) continue;
+            var slotW = arcSpan / (bucket.length + 1);  // +1 so blips aren't on edges
+
+            for (var s = 0; s < bucket.length; s++) {
+                var idx  = bucket[s];
+                var blip = blips[idx];
+
+                // Base angle: evenly distributed within arc
+                var baseDeg = arcStart + slotW * (s + 1);
+
+                // Seeded jitter for organic feel
+                var seed = seeded(blip.id + blip.name);
+                var jitterA = (seed.t - 0.5) * 0.9 * slotW;  // ±45% of slot width
+                var jitterR = (seed.r - 0.5) * 0.3 * (usableR / laneCount);  // ±15% of lane band
+
+                var deg = baseDeg + jitterA;
+                var rad = deg * Math.PI / 180;
+                var r   = lanes[l] + jitterR;
+
+                results.push({
+                    idx: idx,
+                    x:   cx + r * Math.cos(rad),
+                    y:   cy + r * Math.sin(rad)
+                });
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Clamp a position to stay within its ring-quadrant cell bounds.
+     */
+    function clampToCell(x, y, qi, ri, ringR, cx, cy, blipR) {
+        var innerR = ri > 0 ? ringR[ri - 1] : blipR + 2;
+        var outerR = ringR[ri];
+
+        // Clamp radius
+        var dx = x - cx;
+        var dy = y - cy;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        var minR = innerR + blipR + 1;
+        var maxR = outerR - blipR - 1;
+        if (dist < minR || dist > maxR) {
+            dist = Math.max(minR, Math.min(maxR, dist));
+            var angle = Math.atan2(dy, dx);
+            x = cx + dist * Math.cos(angle);
+            y = cy + dist * Math.sin(angle);
+            dx = x - cx;
+            dy = y - cy;
+        }
+
+        // Clamp angle to quadrant (with padding)
+        var angle = Math.atan2(dy, dx) * 180 / Math.PI;
+        if (angle < 0) angle += 360;
+        var qStart = qi * 90 + PAD_DEG;
+        var qEnd   = qi * 90 + 90 - PAD_DEG;
+        if (angle < qStart || angle > qEnd) {
+            var clamped = Math.max(qStart, Math.min(qEnd, angle));
+            var rad = clamped * Math.PI / 180;
+            var r   = Math.sqrt(dx * dx + dy * dy);
+            x = cx + r * Math.cos(rad);
+            y = cy + r * Math.sin(rad);
+        }
+
+        return { x: x, y: y };
+    }
+
+    /**
+     * Resolve remaining overlaps by nudging colliding pairs apart.
+     */
+    function resolveCollisions(positions, blips, ringR, cx, cy, blipR) {
+        var minDist = blipR * 2 + MIN_DIST_PAD;
+
+        for (var pass = 0; pass < MAX_PASSES; pass++) {
+            var moved = false;
+            for (var i = 0; i < positions.length; i++) {
+                for (var j = i + 1; j < positions.length; j++) {
+                    var dx = positions[j].x - positions[i].x;
+                    var dy = positions[j].y - positions[i].y;
+                    var d  = Math.sqrt(dx * dx + dy * dy);
+                    if (d < minDist && d > 0.01) {
+                        var overlap = (minDist - d) / 2 + 0.5;
+                        var nx = dx / d;
+                        var ny = dy / d;
+                        positions[i].x -= nx * overlap;
+                        positions[i].y -= ny * overlap;
+                        positions[j].x += nx * overlap;
+                        positions[j].y += ny * overlap;
+
+                        // Clamp both back to their cells
+                        var bi = blips[positions[i].idx];
+                        var bj = blips[positions[j].idx];
+                        var ci = clampToCell(positions[i].x, positions[i].y,
+                                             bi.quad, bi.ring, ringR, cx, cy, blipR);
+                        var cj = clampToCell(positions[j].x, positions[j].y,
+                                             bj.quad, bj.ring, ringR, cx, cy, blipR);
+                        positions[i].x = ci.x; positions[i].y = ci.y;
+                        positions[j].x = cj.x; positions[j].y = cj.y;
+                        moved = true;
+                    }
+                }
+            }
+            if (!moved) break;
+        }
+    }
+
+    /**
+     * Compute blip positions for all blips. Returns array parallel to blips
+     * with {x, y} for each.
+     */
+    function computeBlipPositions(blips, cx, cy, ringR, blipR) {
+        var nR = ringR.length;
+
+        // Group blip indices by cell (ring + quadrant)
+        var cells = {};
+        blips.forEach(function (blip, idx) {
+            var key = blip.quad + "," + blip.ring;
+            if (!cells[key]) cells[key] = { qi: blip.quad, ri: blip.ring, indices: [] };
+            cells[key].indices.push(idx);
+        });
+
+        // Place each cell
+        var allPositions = [];
+        var keys = Object.keys(cells);
+        for (var k = 0; k < keys.length; k++) {
+            var cell   = cells[keys[k]];
+            var innerR = cell.ri > 0 ? ringR[cell.ri - 1] : blipR + 2;
+            var outerR = ringR[cell.ri];
+            var placed = placeCell(blips, cell.indices, cell.qi, cell.ri,
+                                   innerR, outerR, cx, cy, blipR);
+            for (var p = 0; p < placed.length; p++) allPositions.push(placed[p]);
+        }
+
+        // Resolve collisions across all blips
+        resolveCollisions(allPositions, blips, ringR, cx, cy, blipR);
+
+        // Build output array parallel to blips
+        var result = new Array(blips.length);
+        for (var i = 0; i < allPositions.length; i++) {
+            result[allPositions[i].idx] = { x: allPositions[i].x, y: allPositions[i].y };
+        }
+        return result;
     }
 
     // ── Rendering ───────────────────────────────────────────────────────────
@@ -257,12 +440,11 @@
 
         // ── Blips ───────────────────────────────────────────────────────
         var brad = RADAR.blipR;
+        var positions = computeBlipPositions(blips, cx, cy, ringR, brad);
 
         blips.forEach(function (blip, idx) {
             var n    = idx + 1;
-            var ro   = ringR[blip.ring];
-            var ri2  = blip.ring > 0 ? ringR[blip.ring - 1] : brad + 2;
-            var pos  = blipXY(cx, cy, blip.quad, blip.ring, ri2, ro, blip.id + blip.name);
+            var pos  = positions[idx];
             var bx   = Math.round(pos.x);
             var by   = Math.round(pos.y);
 
