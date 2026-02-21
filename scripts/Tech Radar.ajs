@@ -1,0 +1,58 @@
+/**
+ * @name Tech Radar
+ * @description Renders a Thoughtworks-style Technology Radar from tagged model elements
+ *              as a DiagramModelImage embedded in the current view.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-21
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/resolveSelection.js");
+load(__DIR__ + "lib/techRadar.js");
+
+(function () {
+    "use strict";
+
+    try {
+        log.header("Tech Radar");
+        requireModel();
+
+        var view = resolveSelection.activeView();
+        if (!view) {
+            window.alert("Please open a view first, then run Tech Radar.");
+            return;
+        }
+
+        var blips = techRadar.collectBlips();
+        log.info("Blips found: " + blips.length);
+
+        if (blips.length === 0) {
+            window.alert(
+                "No elements tagged for the Tech Radar were found.\n\n" +
+                "Tag any model element with these properties:\n\n" +
+                "  tech-radar-ring\n" +
+                "    Adopt | Trial | Assess | Hold\n\n" +
+                "  tech-radar-quadrant\n" +
+                "    Platforms | Tools | Languages & Frameworks | Techniques\n\n" +
+                "Optionally:\n" +
+                "  tech-radar-new : true   (marks blip with a triangle \u25b2)"
+            );
+            return;
+        }
+
+        log.info("Rendering " + blips.length + " blip(s)\u2026");
+        var img = techRadar.renderRadar(blips);
+        techRadar.embedInView(img, view);
+
+        log.success("Tech Radar rendered on '" + view.name + "' \u2014 " + blips.length + " blip(s).");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

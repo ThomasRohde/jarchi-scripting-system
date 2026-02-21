@@ -1,0 +1,99 @@
+/**
+ * @name Tech Radar Sample Data
+ * @description Creates sample technology elements with radar properties
+ *              and renders a Tech Radar on a new view.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-21
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/techRadar.js");
+
+(function () {
+    "use strict";
+
+    try {
+        log.header("Tech Radar Sample Data");
+        requireModel();
+
+        // ── Sample technologies ─────────────────────────────────────────────
+        // Each entry: { name, type, ring, quadrant, isNew? }
+
+        var technologies = [
+            // ─── Platforms ──────────────────────────────────────────────────
+            { name: "Kubernetes",               type: "node",                   ring: "Adopt",   quadrant: "Platforms" },
+            { name: "AWS",                      type: "node",                   ring: "Adopt",   quadrant: "Platforms" },
+            { name: "Azure Arc",                type: "node",                   ring: "Trial",   quadrant: "Platforms" },
+            { name: "Cloudflare Workers",       type: "node",                   ring: "Trial",   quadrant: "Platforms", isNew: true },
+            { name: "WebAssembly Runtime",      type: "node",                   ring: "Assess",  quadrant: "Platforms", isNew: true },
+            { name: "Edge Computing Platform",  type: "node",                   ring: "Assess",  quadrant: "Platforms" },
+            { name: "On-Premises Data Center",  type: "node",                   ring: "Hold",    quadrant: "Platforms" },
+            { name: "VMware vSphere",           type: "node",                   ring: "Hold",    quadrant: "Platforms" },
+
+            // ─── Tools ──────────────────────────────────────────────────────
+            { name: "GitHub Actions",           type: "system-software",        ring: "Adopt",   quadrant: "Tools" },
+            { name: "Terraform",                type: "system-software",        ring: "Adopt",   quadrant: "Tools" },
+            { name: "Backstage",                type: "system-software",        ring: "Trial",   quadrant: "Tools", isNew: true },
+            { name: "ArgoCD",                   type: "system-software",        ring: "Trial",   quadrant: "Tools" },
+            { name: "Pulumi",                   type: "system-software",        ring: "Assess",  quadrant: "Tools", isNew: true },
+            { name: "Crossplane",               type: "system-software",        ring: "Assess",  quadrant: "Tools" },
+            { name: "Jenkins",                  type: "system-software",        ring: "Hold",    quadrant: "Tools" },
+            { name: "Bamboo",                   type: "system-software",        ring: "Hold",    quadrant: "Tools" },
+
+            // ─── Languages & Frameworks ─────────────────────────────────────
+            { name: "TypeScript",               type: "application-component",  ring: "Adopt",   quadrant: "Languages & Frameworks" },
+            { name: "React",                    type: "application-component",  ring: "Adopt",   quadrant: "Languages & Frameworks" },
+            { name: "Rust",                     type: "application-component",  ring: "Trial",   quadrant: "Languages & Frameworks" },
+            { name: "Next.js",                  type: "application-component",  ring: "Trial",   quadrant: "Languages & Frameworks", isNew: true },
+            { name: "htmx",                     type: "application-component",  ring: "Assess",  quadrant: "Languages & Frameworks", isNew: true },
+            { name: "Deno",                     type: "application-component",  ring: "Assess",  quadrant: "Languages & Frameworks" },
+            { name: "jQuery",                   type: "application-component",  ring: "Hold",    quadrant: "Languages & Frameworks" },
+            { name: "AngularJS",                type: "application-component",  ring: "Hold",    quadrant: "Languages & Frameworks" },
+
+            // ─── Techniques ─────────────────────────────────────────────────
+            { name: "CI/CD Pipelines",          type: "business-process",       ring: "Adopt",   quadrant: "Techniques" },
+            { name: "Infrastructure as Code",   type: "business-process",       ring: "Adopt",   quadrant: "Techniques" },
+            { name: "Platform Engineering",     type: "business-process",       ring: "Trial",   quadrant: "Techniques", isNew: true },
+            { name: "FinOps",                   type: "business-process",       ring: "Trial",   quadrant: "Techniques" },
+            { name: "AI-Assisted Development",  type: "business-process",       ring: "Assess",  quadrant: "Techniques", isNew: true },
+            { name: "Green Computing",          type: "business-process",       ring: "Assess",  quadrant: "Techniques" },
+            { name: "Waterfall Methodology",    type: "business-process",       ring: "Hold",    quadrant: "Techniques" },
+            { name: "Manual Regression Testing",type: "business-process",       ring: "Hold",    quadrant: "Techniques" }
+        ];
+
+        // ── Create elements ─────────────────────────────────────────────────
+        var created = 0;
+        technologies.forEach(function (tech) {
+            var el = model.createElement(tech.type, tech.name);
+            el.prop("tech-radar-ring",     tech.ring);
+            el.prop("tech-radar-quadrant", tech.quadrant);
+            if (tech.isNew) el.prop("tech-radar-new", "true");
+            created++;
+        });
+        log.info("Created " + created + " sample elements.");
+
+        // ── Create view and render radar ────────────────────────────────────
+        var view = model.createArchimateView("Tech Radar");
+        log.info("Created view '" + view.name + "'.");
+
+        var blips = techRadar.collectBlips();
+        log.info("Blips found: " + blips.length);
+
+        var img = techRadar.renderRadar(blips);
+        techRadar.embedInView(img, view);
+
+        view.openInUI();
+
+        log.success("Tech Radar Sample Data complete \u2014 " + created +
+                    " elements, " + blips.length + " blip(s) rendered.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

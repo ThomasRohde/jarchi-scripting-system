@@ -38,6 +38,8 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 | **Create Chart Definition** | Creates a chart definition on a note element in the active view. Opens a dialog to select from pre-defined EA chart templates, configure dimensions and scope, and optionally initialize data properties on matching model elements. |
 | **Edit Chart Definition** | Edits an existing chart definition on a selected note element. Parses the stored chart-definition property, opens a dialog pre-populated with current settings (title, dimensions, scope, font, colors, visibility), and saves changes back to the note. Works on selected notes or lets you pick from all chart notes on the view. |
 | **Create Dashboard** | Creates a new dashboard view with all 12 chart templates in a symmetric 4x3 grid. Initializes missing data properties with random values, creates sample elements for missing types, and renders all charts automatically. |
+| **Tech Radar** | Renders a Thoughtworks-style Technology Radar as a native image on the active view. Scans model elements tagged with `tech-radar-ring` and `tech-radar-quadrant` properties and plots numbered blips across four rings (Adopt, Trial, Assess, Hold) and four quadrants with a colour-coded legend. |
+| **Tech Radar Sample Data** | Creates 32 sample technology elements across four quadrants and four rings, then renders a Tech Radar on a new view. Useful for trying out the radar without tagging your own elements. |
 
 ## Editing
 

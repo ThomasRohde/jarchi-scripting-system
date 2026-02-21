@@ -1,0 +1,28 @@
+{
+  "id": "visualization.tech_radar",
+  "title": "Tech Radar",
+  "category": ["Visualization"],
+  "order": 30,
+
+  "script": {
+    "path": "Tech Radar.ajs"
+  },
+
+  "description": "Renders a Thoughtworks-style Technology Radar as a native image on the active view. Scans all model elements for tech-radar-ring and tech-radar-quadrant properties and plots numbered blips with a colour-coded legend.",
+  "tags": ["visualization", "radar", "technology", "assessment", "image"],
+
+  "help": {
+    "markdown_path": "../help/tech-radar.md"
+  },
+
+  "run": {
+    "danger_level": "medium",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": true
+  }
+}

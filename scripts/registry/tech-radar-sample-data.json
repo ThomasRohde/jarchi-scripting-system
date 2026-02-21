@@ -1,0 +1,28 @@
+{
+  "id": "visualization.tech_radar_sample_data",
+  "title": "Tech Radar Sample Data",
+  "category": ["Visualization"],
+  "order": 31,
+
+  "script": {
+    "path": "Tech Radar Sample Data.ajs"
+  },
+
+  "description": "Creates 32 sample technology elements across four quadrants and four rings, then renders a Tech Radar on a new view. Useful for trying out the radar without tagging your own elements.",
+  "tags": ["visualization", "radar", "technology", "sample", "demo"],
+
+  "help": {
+    "markdown_path": "../help/tech-radar.md"
+  },
+
+  "run": {
+    "danger_level": "high",
+    "confirm_message": "This will create 32 new model elements and a new view with sample tech radar data."
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}
