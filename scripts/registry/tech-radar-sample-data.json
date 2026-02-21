@@ -12,7 +12,7 @@
   "tags": ["visualization", "radar", "technology", "sample", "demo"],
 
   "help": {
-    "markdown_path": "../help/tech-radar.md"
+    "markdown_path": "../help/tech-radar-sample-data.md"
   },
 
   "run": {
