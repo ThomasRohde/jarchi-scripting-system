@@ -254,11 +254,12 @@
                 ".json-number { color: #b5cea8; }",
                 ".json-bool { color: #569cd6; }",
                 ".json-null { color: #569cd6; }",
-                ".streaming { background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 6px;",
-                "  margin: 6px 0; white-space: pre-wrap; word-wrap: break-word;",
-                "  font-family: Consolas, Monaco, monospace; font-size: 12px; }",
-                "@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }",
-                ".cursor { animation: blink 1s step-end infinite; color: #4fc3f7; font-weight: bold; }",
+                ".streaming { background: transparent; color: #333; padding: 0; margin: 4px 0;",
+                "  white-space: pre-wrap; word-wrap: break-word;",
+                "  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; line-height: 1.5; }",
+                "@keyframes pulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }",
+                ".thinking { color: #9ca3af; font-style: italic; padding: 4px 0; }",
+                ".thinking-dots { animation: pulse 1.4s ease-in-out infinite; }",
                 "</style>",
                 "</head>",
                 "<body>",
@@ -279,12 +280,15 @@
                 "function appendStreamText(id, text) {",
                 "  var body = document.getElementById('body-' + id);",
                 "  if (!body) return;",
+                "  var thinking = body.querySelector('.thinking');",
+                "  if (thinking) {",
+                "    body.innerHTML = '<pre class=\"streaming\">' + text + '</pre>';",
+                "    scrollBottom();",
+                "    return;",
+                "  }",
                 "  var pre = body.querySelector('pre.streaming');",
                 "  if (!pre) return;",
-                "  var cursor = pre.querySelector('.cursor');",
-                "  var tn = document.createTextNode(text);",
-                "  if (cursor) pre.insertBefore(tn, cursor);",
-                "  else pre.appendChild(tn);",
+                "  pre.appendChild(document.createTextNode(text));",
                 "  scrollBottom();",
                 "}",
                 "function finalizeMessage(id, html) {",
@@ -327,7 +331,7 @@
             var msg = createMessage(role, "");
             msg.streaming = true;
             streamingMsgId = msg.id;
-            var bodyHtml = '<pre class="streaming"><span class="cursor">\u258c</span></pre>';
+            var bodyHtml = '<div class="thinking"><span class="thinking-dots">\u2022 \u2022 \u2022</span> Thinking\u2026</div>';
             w.chatBrowser.execute(
                 "addMessage('" + escapeForJs(msg.id) + "','" + escapeForJs(role) +
                 "','" + escapeForJs(msg.timestamp) + "','" + escapeForJs(bodyHtml) + "')"
@@ -567,6 +571,8 @@
                 var result = codexClient.ask(state.threadId, prompt, {
                     onDelta: function (delta) {
                         appendRaw(delta);
+                    },
+                    onPoll: function () {
                         try {
                             while (display.readAndDispatch()) { /* pump */ }
                         } catch (e) { /* ignore pump errors */ }
@@ -649,6 +655,11 @@
                     context: context,
                     onDelta: function (delta) {
                         // Show streaming progress dots
+                    },
+                    onPoll: function () {
+                        try {
+                            while (display.readAndDispatch()) { /* pump */ }
+                        } catch (e) { /* ignore */ }
                     }
                 });
 
@@ -900,7 +911,7 @@
 
                 getShellStyle: function () {
                     return SWT.CLOSE | SWT.TITLE | SWT.BORDER |
-                        SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+                        SWT.RESIZE | SWT.MAX | SWT.MIN;
                 },
 
                 getInitialSize: function () {

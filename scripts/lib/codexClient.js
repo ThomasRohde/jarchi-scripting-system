@@ -39,6 +39,7 @@
     var Random = Java.type("java.util.Random");
     var ByteArray = Java.type("byte[]");
     var JStringBuilder = Java.type("java.lang.StringBuilder");
+    var JThread = Java.type("java.lang.Thread");
 
     // ── Defaults ────────────────────────────────────────────────────────
     var DEFAULTS = {
@@ -223,6 +224,23 @@
         }
     }
 
+    /**
+     * Non-blocking poll for a single WebSocket message.
+     * Returns parsed JSON if data is available in the socket buffer, null otherwise.
+     * Does NOT block — returns immediately if no data.
+     */
+    function _pollOnce() {
+        if (!socket) return null;
+        try {
+            if (din.available() === 0) return null;
+        } catch (e) {
+            return null;
+        }
+        // Data available — read with generous timeout (should complete near-instantly)
+        var raw = _wsRead(5000);
+        return JSON.parse(raw);
+    }
+
     // ── JSON-RPC layer ──────────────────────────────────────────────────
 
     /**
@@ -369,6 +387,116 @@
         return "completed";
     }
 
+    // ── Non-blocking turn execution ─────────────────────────────────────
+
+    /**
+     * Send a prompt and collect the response using non-blocking polling.
+     * Calls onPoll() between socket reads so the caller can pump their event loop.
+     * The UI remains responsive during the entire LLM thinking + streaming phase.
+     *
+     * @param {string} threadId
+     * @param {string} text
+     * @param {Object} options - Must include onPoll
+     * @param {Function} options.onPoll - Called between reads for event loop pumping
+     * @param {Function} [options.onDelta] - Streaming text callback
+     * @param {number} [options.timeout] - Turn timeout (default 5min)
+     * @param {Object} [options.outputSchema] - Structured output schema
+     * @returns {{ text: string, turnId: string, status: string, items: Array }}
+     */
+    function _askStreaming(threadId, text, options) {
+        var timeout = options.timeout || DEFAULTS.turnTimeout;
+        var onDelta = options.onDelta;
+        var onPoll = options.onPoll;
+
+        var turnParams = {
+            threadId: threadId,
+            input: [{ type: "text", text: text }]
+        };
+        if (options.outputSchema) turnParams.outputSchema = options.outputSchema;
+
+        // Send turn/start request (non-blocking send)
+        var reqId = nextId++;
+        wsSend({ method: "turn/start", id: reqId, params: turnParams });
+
+        var deadline = JavaSystem.currentTimeMillis() + timeout;
+        var turnId = null;
+        var textParts = [];
+        var items = [];
+
+        // Phase 1: Wait for turn/start response while keeping UI alive
+        while (true) {
+            if (JavaSystem.currentTimeMillis() >= deadline) {
+                throw new Error("codexClient: turn/start timed out");
+            }
+
+            var msg = _pollOnce();
+            if (msg === null) {
+                if (onPoll) onPoll();
+                JThread.sleep(1);
+                continue;
+            }
+
+            // Our response
+            if (msg.id === reqId) {
+                if (msg.error) {
+                    throw new Error("codexClient: RPC error [" +
+                        (msg.error.code || "") + "] " + (msg.error.message || JSON.stringify(msg.error)));
+                }
+                turnId = msg.result.turn.id;
+                break;
+            }
+
+            // Auto-accept server-initiated requests
+            if (msg.method && msg.id !== undefined) {
+                _autoAccept(msg);
+                continue;
+            }
+
+            // Stash notifications
+            if (msg.method) {
+                bufferedNotifications.push(msg);
+            }
+            if (onPoll) onPoll();
+        }
+
+        // Phase 2: Collect turn response
+        // Drain buffered notifications first
+        var buffered = bufferedNotifications.splice(0);
+        for (var b = 0; b < buffered.length; b++) {
+            var handled = _processTurnNotification(buffered[b], turnId, textParts, items, onDelta);
+            if (handled === "done") {
+                return { text: textParts.join(""), turnId: turnId, status: _extractStatus(buffered[b]), items: items };
+            }
+        }
+
+        // Poll for new messages
+        while (true) {
+            if (JavaSystem.currentTimeMillis() >= deadline) {
+                throw new Error("codexClient: turn timed out after " + timeout + "ms");
+            }
+
+            var msg2 = _pollOnce();
+            if (msg2 === null) {
+                if (onPoll) onPoll();
+                JThread.sleep(1);
+                continue;
+            }
+
+            // Auto-accept
+            if (msg2.method && msg2.id !== undefined) {
+                _autoAccept(msg2);
+                if (onPoll) onPoll();
+                continue;
+            }
+
+            var result = _processTurnNotification(msg2, turnId, textParts, items, onDelta);
+            if (result === "done") {
+                return { text: textParts.join(""), turnId: turnId, status: _extractStatus(msg2), items: items };
+            }
+            if (onPoll) onPoll();
+        }
+    }
+
     // ── Public API ──────────────────────────────────────────────────────
 
     /**
@@ -504,15 +632,27 @@
     /**
      * Send a prompt and collect the full response.
      *
+     * If options.onPoll is provided, uses non-blocking polling so the caller
+     * can pump their event loop (UI stays responsive during LLM thinking).
+     * Without onPoll, uses the original blocking approach.
+     *
      * @param {string} threadId - Thread to send to
      * @param {string} text - User prompt text
      * @param {Object} [options]
      * @param {number} [options.timeout] - Turn timeout in ms (default 5min)
      * @param {Function} [options.onDelta] - Callback for streaming text deltas
+     * @param {Function} [options.onPoll] - Called between reads for event loop pumping
      * @returns {{ text: string, turnId: string, status: string, items: Array }}
      */
     function ask(threadId, text, options) {
         options = options || {};
+
+        // Non-blocking path when onPoll is provided
+        if (options.onPoll) {
+            return _askStreaming(threadId, text, options);
+        }
+
+        // Original blocking path
         var timeout = options.timeout || DEFAULTS.turnTimeout;
 
         var turnParams = {
@@ -995,7 +1135,8 @@
         var askResult = ask(threadId, prompt, {
             outputSchema: _OUTPUT_SCHEMA,
             timeout: options.timeout,
-            onDelta: options.onDelta
+            onDelta: options.onDelta,
+            onPoll: options.onPoll
         });
 
         // Collect text from all possible sources
