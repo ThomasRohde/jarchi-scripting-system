@@ -798,10 +798,61 @@
                 elements.each(function () { elCount++; });
                 rels.each(function () { relCount++; });
                 views.each(function () { viewCount++; });
-                appendChat("[System]", "Model: " + model.name);
-                appendChat("[System]", "  Elements: " + elCount);
-                appendChat("[System]", "  Relationships: " + relCount);
-                appendChat("[System]", "  Views: " + viewCount);
+
+                // Collect element types breakdown
+                var typeCounts = {};
+                elements.each(function (el) {
+                    var t = String(el.type);
+                    typeCounts[t] = (typeCounts[t] || 0) + 1;
+                });
+                // Sort by count descending
+                var typeEntries = [];
+                for (var t in typeCounts) typeEntries.push({ type: t, count: typeCounts[t] });
+                typeEntries.sort(function (a, b) { return b.count - a.count; });
+
+                // Collect relationship types breakdown
+                var relTypeCounts = {};
+                rels.each(function (r) {
+                    var rt = String(r.type);
+                    relTypeCounts[rt] = (relTypeCounts[rt] || 0) + 1;
+                });
+                var relTypeEntries = [];
+                for (var rt in relTypeCounts) relTypeEntries.push({ type: rt, count: relTypeCounts[rt] });
+                relTypeEntries.sort(function (a, b) { return b.count - a.count; });
+
+                if (w.chatBrowser && !w.chatBrowser.isDisposed()) {
+                    var md = "**Model:** " + model.name + "\n\n" +
+                        "| Metric | Count |\n|--------|------:|\n" +
+                        "| Elements | " + elCount + " |\n" +
+                        "| Relationships | " + relCount + " |\n" +
+                        "| Views | " + viewCount + " |\n";
+
+                    if (typeEntries.length > 0) {
+                        md += "\n**Element types:**\n\n| Type | Count |\n|------|------:|\n";
+                        for (var i = 0; i < typeEntries.length; i++) {
+                            md += "| " + typeEntries[i].type + " | " + typeEntries[i].count + " |\n";
+                        }
+                    }
+
+                    if (relTypeEntries.length > 0) {
+                        md += "\n**Relationship types:**\n\n| Type | Count |\n|------|------:|\n";
+                        for (var j = 0; j < relTypeEntries.length; j++) {
+                            md += "| " + relTypeEntries[j].type + " | " + relTypeEntries[j].count + " |\n";
+                        }
+                    }
+
+                    var msg = createMessage("system", md);
+                    var bodyHtml = '<div style="font-style:normal;">' + renderMarkdown(md) + '</div>';
+                    w.chatBrowser.execute(
+                        "addMessage('" + escapeForJs(msg.id) + "','system','" +
+                        escapeForJs(msg.timestamp) + "','" + escapeForJs(bodyHtml) + "')"
+                    );
+                } else {
+                    appendChat("[System]", "Model: " + model.name +
+                        " | Elements: " + elCount +
+                        " | Relationships: " + relCount +
+                        " | Views: " + viewCount);
+                }
             } catch (e) {
                 appendChat("[Error]", "Failed to read model context: " + e.message);
             }
@@ -841,11 +892,26 @@
 
         function handleStatus() {
             appendChat("[You]", "/status");
-            appendChat("[System]", "Connected: " + state.connected);
-            appendChat("[System]", "Thread: " + (state.threadId || "none"));
-            appendChat("[System]", "Turn count: " + state.turnCount);
-            appendChat("[System]", "Model context sent: " + state.modelContextSent);
-            appendChat("[System]", "Pending plan: " + (state.lastPlan ? "yes (" + state.lastPlan.actions.length + " actions)" : "no"));
+            if (w.chatBrowser && !w.chatBrowser.isDisposed()) {
+                var md = "| Property | Value |\n|----------|-------|\n" +
+                    "| Connected | " + (state.connected ? "Yes" : "No") + " |\n" +
+                    "| Thread | `" + (state.threadId || "none") + "` |\n" +
+                    "| Turn count | " + state.turnCount + " |\n" +
+                    "| Model context sent | " + (state.modelContextSent ? "Yes" : "No") + " |\n" +
+                    "| Pending plan | " + (state.lastPlan ? "Yes (" + state.lastPlan.actions.length + " actions)" : "No") + " |\n";
+                var msg = createMessage("system", md);
+                var bodyHtml = '<div style="font-style:normal;">' + renderMarkdown(md) + '</div>';
+                w.chatBrowser.execute(
+                    "addMessage('" + escapeForJs(msg.id) + "','system','" +
+                    escapeForJs(msg.timestamp) + "','" + escapeForJs(bodyHtml) + "')"
+                );
+            } else {
+                appendChat("[System]", "Connected: " + state.connected +
+                    " | Thread: " + (state.threadId || "none") +
+                    " | Turns: " + state.turnCount +
+                    " | Context sent: " + state.modelContextSent +
+                    " | Plan: " + (state.lastPlan ? "yes (" + state.lastPlan.actions.length + " actions)" : "no"));
+            }
         }
 
         // ── Command dispatcher ───────────────────────────────────────────
