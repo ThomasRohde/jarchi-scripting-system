@@ -278,7 +278,6 @@
                             w.searchText.setText("");
                             w.tree.removeAll();
                             buildTreeItems(w.tree, treeRoot);
-                            expandAll(w.tree);
                             selectedDescriptor = null;
                             clearDetails();
                             updateButtons();
@@ -340,10 +339,6 @@
                                 // Ctrl+F
                                 w.searchText.setFocus();
                                 w.searchText.selectAll();
-                            } else if (e.keyCode === SWT.F1) {
-                                if (w.helpBrowser) {
-                                    w.helpBrowser.setFocus();
-                                }
                             }
                         },
                         keyReleased: function () {}
@@ -436,17 +431,49 @@
         }
 
         function clearDetails() {
-            w.titleLabel.setText("Select a script");
-            w.descriptionLabel.setText("Choose a script from the tree to view details and help.");
+            w.titleLabel.setText("Script Menu");
+            w.descriptionLabel.setText("Browse and run JArchi scripts from the registry.");
             w.categoryLabel.setText("");
             w.tagsLabel.setText("");
             w.dangerLabel.setText("");
             w.selectionReqLabel.setText("");
             w.gatingStatusLabel.setText("");
+
+            var welcomeMd = [
+                "# Welcome to Script Menu",
+                "",
+                "Select a script from the tree on the left to view its details and help.",
+                "",
+                "## Quick Start",
+                "",
+                "- **Expand** a category in the tree to browse scripts",
+                "- **Click** a script to see its description and help",
+                "- **Double-click** or press **Enter** to run the selected script",
+                "",
+                "## Keyboard Shortcuts",
+                "",
+                "| Key | Action |",
+                "|-----|--------|",
+                "| **Type in search** | Fuzzy-search all scripts |",
+                "| **Esc** | Clear search / close dialog |",
+                "| **Ctrl+F** | Focus search box |",
+                "| **Arrow Down** | Jump from search to tree |",
+                "| **Enter** | Run selected script |",
+                "",
+                "## Toolbar",
+                "",
+                "- **Refresh** \u2014 rescan the registry for new or changed scripts",
+                "- **\u25BC** / **\u25B2** \u2014 expand or collapse all categories",
+                "",
+                "---",
+                "",
+                "*" + currentDescriptors.length + " scripts registered*"
+            ].join("\n");
+
             if (w.helpBrowser) {
-                w.helpBrowser.setText(markdownRenderer.render(null));
+                w.helpBrowser.setText(markdownRenderer.render(welcomeMd));
             } else if (w.helpFallback) {
-                w.helpFallback.setText("");
+                w.helpFallback.setText("Select a script from the tree to view details.");
             }
         }
 
