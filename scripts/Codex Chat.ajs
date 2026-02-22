@@ -1,0 +1,38 @@
+/**
+ * @name Codex Chat
+ * @description Multi-turn chat dialog for conversing with Codex about the ArchiMate model.
+ *   Supports streaming responses, slash commands (/plan, /apply, /clear), and server
+ *   configuration inspection. Requires `codex app-server --listen ws://127.0.0.1:19000` running.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-22
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/relationshipMatrix.js");
+load(__DIR__ + "lib/planValidator.js");
+load(__DIR__ + "lib/planExecutor.js");
+load(__DIR__ + "lib/codexClient.js");
+load(__DIR__ + "lib/codexChat.js");
+
+(function () {
+    "use strict";
+
+    try {
+        log.header("Codex Chat");
+        requireModel();
+
+        codexChat.open();
+
+        log.success("Chat session ended.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        try { codexClient.disconnect(); } catch (e) { /* ignore */ }
+    }
+})();

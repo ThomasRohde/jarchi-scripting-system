@@ -1,0 +1,159 @@
+/**
+ * @name Codex Plan Apply
+ * @description Connects to Codex, sends a planning request with model context, validates the
+ *   returned ArchiChangePlan, previews actions, and applies them on user confirmation.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-22
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/relationshipMatrix.js");
+load(__DIR__ + "lib/planValidator.js");
+load(__DIR__ + "lib/planExecutor.js");
+load(__DIR__ + "lib/codexClient.js");
+
+(function () {
+    "use strict";
+
+    try {
+        log.header("Codex Plan Apply");
+        requireModel();
+
+        // ── Get user intent ──────────────────────────────────────────────
+        var userIntent = window.prompt("What changes would you like to make to the model?", "");
+        if (!userIntent || userIntent.trim() === "") {
+            log.warn("No input provided. Cancelled.");
+            return;
+        }
+
+        // ── Connect ──────────────────────────────────────────────────────
+        log.info("Connecting to Codex app-server...");
+        codexClient.connect();
+        log.success("Connected.");
+
+        // ── Build planning context ───────────────────────────────────────
+        log.info("Building planning context...");
+        var context = codexClient.buildPlanningContext({
+            maxElements: 100,
+            relationships: true,
+            includeDocumentation: true
+        });
+        log.detail("Context: " + context.scope.element_count + " elements, " +
+            context.scope.relationship_count + " relationships");
+
+        // ── Start thread and request plan ─────────────────────────────────
+        log.info("Starting Codex thread...");
+        var thread = codexClient.startThread({
+            approvalPolicy: "never"
+        });
+        log.detail("Thread: " + thread.id);
+
+        log.info("Requesting plan...");
+        var planResult = codexClient.askPlan(thread.id, userIntent, {
+            context: context,
+            onDelta: function () {
+                // streaming progress — could update a spinner here
+            }
+        });
+
+        // ── Display plan summary ─────────────────────────────────────────
+        if (!planResult.plan) {
+            log.error("Failed to get plan: " + (planResult.error || "unknown error"));
+            codexClient.disconnect();
+            return;
+        }
+
+        var plan = planResult.plan;
+        log.info("Plan status: " + plan.status);
+        log.info("Summary: " + plan.summary);
+
+        // Handle non-ready statuses
+        if (plan.status === "needs_clarification") {
+            log.warn("Codex needs clarification:");
+            var questions = plan.questions || [];
+            for (var q = 0; q < questions.length; q++) {
+                log.detail("  - " + questions[q]);
+            }
+            codexClient.disconnect();
+            return;
+        }
+
+        if (plan.status === "refusal") {
+            log.warn("Codex declined: " + plan.summary);
+            codexClient.disconnect();
+            return;
+        }
+
+        // ── Validation results ───────────────────────────────────────────
+        if (planResult.validation) {
+            if (planResult.validation.warnings.length > 0) {
+                for (var w = 0; w < planResult.validation.warnings.length; w++) {
+                    log.warn("Warning: " + planResult.validation.warnings[w]);
+                }
+            }
+        }
+
+        if (!planResult.ok) {
+            log.error("Validation failed: " + planResult.error);
+            codexClient.disconnect();
+            return;
+        }
+
+        log.success("Plan validated (" + plan.actions.length + " actions)");
+
+        // ── Preview actions ──────────────────────────────────────────────
+        log.info("Preview:");
+        var preview = planExecutor.execute(plan, { preview: true });
+        for (var p = 0; p < preview.results.length; p++) {
+            log.detail("  " + (p + 1) + ". " + preview.results[p].preview);
+        }
+
+        // ── Confirm ──────────────────────────────────────────────────────
+        var confirmed = window.confirm(
+            "Apply " + plan.actions.length + " action(s) to the model?\n\n" +
+            plan.summary
+        );
+        if (!confirmed) {
+            log.warn("Cancelled by user.");
+            codexClient.disconnect();
+            return;
+        }
+
+        // ── Apply ────────────────────────────────────────────────────────
+        log.info("Applying changes...");
+        var result = planExecutor.execute(plan, { preview: false });
+
+        // ── Report ───────────────────────────────────────────────────────
+        for (var r = 0; r < result.results.length; r++) {
+            var res = result.results[r];
+            if (res.ok) {
+                log.detail("  [OK] " + (r + 1) + ". " + res.op);
+            } else if (res.skipped) {
+                log.detail("  [SKIP] " + (r + 1) + ". " + res.op);
+            } else {
+                log.error("  [FAIL] " + (r + 1) + ". " + res.op + " - " + res.error);
+            }
+        }
+
+        if (result.ok) {
+            log.success("Done. Applied " + result.applied + " action(s).");
+        } else {
+            log.warn("Completed with errors. Applied: " + result.applied +
+                ", Failed: " + result.failed + ", Skipped: " + result.skipped);
+        }
+
+        // ── Disconnect ───────────────────────────────────────────────────
+        codexClient.disconnect();
+
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        try { codexClient.disconnect(); } catch (e) { /* ignore */ }
+        window.alert("Error: " + error.message);
+    }
+})();

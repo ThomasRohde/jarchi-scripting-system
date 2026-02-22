@@ -1,0 +1,12 @@
+{
+  "id": "codex.codex_plan_apply",
+  "title": "Codex Plan Apply",
+  "category": ["Codex"],
+  "order": 20,
+  "script": { "path": "Codex Plan Apply.ajs" },
+  "description": "Connects to a running Codex app-server, sends a natural-language change request with model context, validates the returned structured plan, previews actions, and applies them on confirmation. Supports rename, set property, and create relationship operations.",
+  "tags": ["codex", "ai", "plan", "apply", "structured-output", "model-modification"],
+  "help": { "markdown_path": "../help/codex-plan-apply.md" },
+  "run": { "danger_level": "high", "confirm_message": "This script can modify model elements. Continue?" },
+  "selection": { "types": [], "min": 0, "require_view": false }
+}

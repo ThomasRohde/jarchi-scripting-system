@@ -1,0 +1,12 @@
+{
+  "id": "codex.codex_chat",
+  "title": "Codex Chat",
+  "category": ["Codex"],
+  "order": 30,
+  "script": { "path": "Codex Chat.ajs" },
+  "description": "Multi-turn chat dialog for conversing with Codex about the ArchiMate model. Supports streaming responses, slash commands (/plan, /apply, /clear, /context, /status), and server configuration inspection via tabs.",
+  "tags": ["codex", "ai", "chat", "multi-turn", "streaming", "plan", "apply"],
+  "help": { "markdown_path": "../help/codex-chat.md" },
+  "run": { "danger_level": "medium", "confirm_message": "This script can modify model elements via /apply. Continue?" },
+  "selection": { "types": [], "min": 0, "require_view": false }
+}

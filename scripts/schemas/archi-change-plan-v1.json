@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ArchiChangePlan",
+  "description": "Structured output schema for ArchiMate model change plans returned by Codex.",
+  "type": "object",
+  "required": ["schema_version", "status", "summary", "actions"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ready", "needs_clarification", "refusal"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "maxItems": 10
+    },
+    "actions": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["op", "type", "name"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "type": "string", "const": "create_element" },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Stakeholder", "Driver", "Assessment", "Goal", "Outcome",
+                  "Principle", "Requirement", "Constraint", "Meaning", "Value",
+                  "Resource", "Capability", "Course Of Action", "Value Stream",
+                  "Business Actor", "Business Role", "Business Collaboration",
+                  "Business Interface", "Business Process", "Business Function",
+                  "Business Interaction", "Business Event", "Business Service",
+                  "Business Object", "Contract", "Representation", "Product",
+                  "Application Component", "Application Collaboration",
+                  "Application Interface", "Application Function",
+                  "Application Process", "Application Interaction",
+                  "Application Event", "Application Service", "Data Object",
+                  "Node", "Device", "System Software", "Technology Collaboration",
+                  "Technology Interface", "Path", "Communication Network",
+                  "Technology Function", "Technology Process",
+                  "Technology Interaction", "Technology Event",
+                  "Technology Service", "Artifact", "Equipment", "Facility",
+                  "Distribution Network", "Material",
+                  "Work Package", "Deliverable", "Implementation Event",
+                  "Plateau", "Gap"
+                ]
+              },
+              "name": { "type": "string", "minLength": 1, "maxLength": 1000 },
+              "ref_id": { "type": "string", "minLength": 1, "maxLength": 100 }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["op", "element_id", "new_name"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "type": "string", "const": "rename_element" },
+              "element_id": { "type": "string", "minLength": 1 },
+              "new_name": { "type": "string", "minLength": 1, "maxLength": 1000 }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["op", "element_id", "key", "value"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "type": "string", "const": "set_property" },
+              "element_id": { "type": "string", "minLength": 1 },
+              "key": { "type": "string", "minLength": 1, "maxLength": 200 },
+              "value": { "type": "string", "maxLength": 5000 }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["op", "source_id", "target_id", "relationship_type"],
+            "additionalProperties": false,
+            "properties": {
+              "op": { "type": "string", "const": "create_relationship" },
+              "source_id": { "type": "string", "minLength": 1 },
+              "target_id": { "type": "string", "minLength": 1 },
+              "relationship_type": {
+                "type": "string",
+                "enum": [
+                  "Composition", "Aggregation", "Assignment", "Realization",
+                  "Serving", "Access", "Influence", "Triggering", "Flow",
+                  "Specialization", "Association"
+                ]
+              },
+              "name": { "type": "string", "maxLength": 1000 }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
