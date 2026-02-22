@@ -958,9 +958,73 @@
         };
     }
 
+    // ── Relationship guide builder ──────────────────────────────────────
+
+    /**
+     * Build a compact reference of valid relationships for the element types
+     * present in the planning context. Uses relationshipMatrix to look up
+     * which relationship types are allowed for each source→target type pair.
+     *
+     * @param {Object} context - Planning context from buildPlanningContext()
+     * @returns {string} Markdown-formatted relationship guide
+     */
+    function _buildRelationshipGuide(context) {
+        if (!context || !context.elements || !context.elements.length) return "";
+        if (typeof relationshipMatrix === "undefined") return "";
+
+        // Collect unique element type labels from context
+        var typeLabelSet = {};
+        for (var i = 0; i < context.elements.length; i++) {
+            typeLabelSet[context.elements[i].type] = true;
+        }
+        var typeLabels = Object.keys(typeLabelSet).sort();
+        if (typeLabels.length === 0) return "";
+
+        // Convert "Application Component" → "application-component"
+        function labelToKey(label) {
+            return label.toLowerCase().replace(/ /g, "-");
+        }
+
+        var lines = [];
+        lines.push("## Allowed Relationships Reference");
+        lines.push("CRITICAL: Only create relationships listed below for each source→target type combination.");
+        lines.push("If a source→target pair is not listed, no relationship can be created between them.\n");
+
+        for (var s = 0; s < typeLabels.length; s++) {
+            var sourceKey = labelToKey(typeLabels[s]);
+            if (!relationshipMatrix.isKnownType(sourceKey)) continue;
+
+            var entries = [];
+            for (var t = 0; t < typeLabels.length; t++) {
+                var targetKey = labelToKey(typeLabels[t]);
+                if (!relationshipMatrix.isKnownType(targetKey)) continue;
+
+                var allowed = relationshipMatrix.getAllowed(sourceKey, targetKey);
+                if (allowed.length === 0) continue;
+
+                var labels = [];
+                for (var r = 0; r < allowed.length; r++) {
+                    labels.push(relationshipMatrix.getRelationshipLabel(allowed[r]));
+                }
+                entries.push("  -> " + typeLabels[t] + ": " + labels.join(", "));
+            }
+
+            if (entries.length > 0) {
+                lines.push(typeLabels[s] + ":");
+                for (var e = 0; e < entries.length; e++) {
+                    lines.push(entries[e]);
+                }
+            }
+        }
+
+        return lines.join("\n");
+    }
+
     // ── Plan prompt builder ──────────────────────────────────────────────
 
     function _buildPlanPrompt(request, context) {
+        var relGuide = _buildRelationshipGuide(context);
+
         return "You are an ArchiMate model assistant. Your task is to produce a structured change plan.\n\n" +
             "## Rules\n" +
             "1. Return ONLY a valid JSON object matching the ArchiChangePlan schema.\n" +
@@ -986,7 +1050,12 @@
             "17. move_to_folder uses /-separated paths matching the folder structure (e.g. \"Business/Actors\").\n" +
             "18. Limit plans to at most 150 actions. For large requests, focus on the most important " +
                 "elements and relationships. Note in the summary what was omitted or simplified, " +
-                "so the user can request follow-up plans for specific areas.\n\n" +
+                "so the user can request follow-up plans for specific areas.\n" +
+            "19. CRITICAL: Before creating any relationship, verify the source type → target type → " +
+                "relationship type combination is valid per the 'Allowed Relationships Reference' below. " +
+                "Invalid relationships will be rejected. Not all relationship types work between all " +
+                "element types — consult the reference for each specific pair.\n\n" +
+            (relGuide ? relGuide + "\n\n" : "") +
             "## Model Context\n" +
             JSON.stringify(context, null, 2) + "\n\n" +
             "## User Request\n" +
