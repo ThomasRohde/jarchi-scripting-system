@@ -978,13 +978,6 @@
                     w.inputField.addListener(SWT.KeyDown, function (e) {
                         var kc = Number(e.keyCode);
                         var sm = Number(e.stateMask);
-                        var ch = Number(e.character);
-                        // Debug: log every Enter-related key press
-                        if (kc === 13 || kc === 10 || ch === 13 || ch === 10) {
-                            console.log("KeyDown: keyCode=" + kc + " char=" + ch +
-                                " stateMask=" + sm + " SWT.CR=" + Number(SWT.CR) +
-                                " SWT.CTRL=" + Number(SWT.CTRL));
-                        }
                         if ((kc === 13 || kc === Number(SWT.KEYPAD_CR)) && (sm & Number(SWT.CTRL)) !== 0) {
                             e.doit = false;
                             display.asyncExec(function () { doSend(); });
@@ -993,7 +986,7 @@
 
                     w.sendButton = new Button(inputArea, SWT.PUSH);
                     w.sendButton.setText("Send (Ctrl+\u21B5)");
-                    var sendGd = new GridData(SWT.CENTER, SWT.TOP, false, false);
+                    var sendGd = new GridData(SWT.CENTER, SWT.FILL, false, true);
                     w.sendButton.setLayoutData(sendGd);
                     w.sendButton.setEnabled(false);
                     w.sendButton.addListener(SWT.Selection, function () {
