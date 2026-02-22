@@ -11,6 +11,7 @@ console.show();
 
 load(__DIR__ + "lib/log.js");
 load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/planOps.js");
 load(__DIR__ + "lib/codexClient.js");
 
 (function () {
