@@ -28,7 +28,7 @@
 
     // ── Limits ───────────────────────────────────────────────────────────
 
-    var MAX_ACTIONS = 100;
+    var MAX_ACTIONS = 500;
     var MAX_SUMMARY_LENGTH = 2000;
     var MAX_NAME_LENGTH = 1000;
     var MAX_KEY_LENGTH = 200;

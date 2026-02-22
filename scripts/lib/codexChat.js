@@ -670,7 +670,7 @@
 
                 var planResult = codexClient.askPlan(state.threadId, args, {
                     context: context,
-                    timeout: 600000, // 10 minutes for plan generation
+                    timeout: 900000, // 15 minutes for plan generation
                     onDelta: function () {
                         // Don't show raw JSON deltas — keep the thinking animation
                     },
@@ -777,7 +777,7 @@
             appendChat("[System]", "Applying " + state.lastPlan.actions.length + " action(s)...");
 
             try {
-                var result = planExecutor.execute(state.lastPlan, { preview: false });
+                var result = planExecutor.execute(state.lastPlan, { preview: false, stopOnError: false });
 
                 var md = "";
                 var okCount = 0, failCount = 0, skipCount = 0;

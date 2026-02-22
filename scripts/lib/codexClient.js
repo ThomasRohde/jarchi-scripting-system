@@ -983,7 +983,10 @@
             "14. delete_element cascades — it automatically removes all attached relationships.\n" +
             "15. add_to_view coordinates (x, y, width, height) are optional — omit them for auto-grid layout.\n" +
             "16. Connections between elements on a view are auto-added — do NOT create them manually.\n" +
-            "17. move_to_folder uses /-separated paths matching the folder structure (e.g. \"Business/Actors\").\n\n" +
+            "17. move_to_folder uses /-separated paths matching the folder structure (e.g. \"Business/Actors\").\n" +
+            "18. Limit plans to at most 150 actions. For large requests, focus on the most important " +
+                "elements and relationships. Note in the summary what was omitted or simplified, " +
+                "so the user can request follow-up plans for specific areas.\n\n" +
             "## Model Context\n" +
             JSON.stringify(context, null, 2) + "\n\n" +
             "## User Request\n" +
