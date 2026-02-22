@@ -48,6 +48,9 @@
     var IDialogConstants = swt.IDialogConstants;
     var ExtendedTitleAreaDialog = swt.ExtendedTitleAreaDialog;
     var Browser = swt.Browser;
+    var Shell = swt.Shell;
+    var FillLayout = swt.FillLayout;
+    var Color = swt.Color;
 
     // ── Custom button IDs ────────────────────────────────────────────────
     var CONNECT_ID = IDialogConstants.CLIENT_ID + 1;
@@ -925,6 +928,150 @@
             status: handleStatus
         };
 
+        var COMMAND_META = [
+            { name: "plan",    args: " <description>", desc: "Generate a structured change plan" },
+            { name: "apply",   args: "",               desc: "Execute the last generated plan" },
+            { name: "clear",   args: "",               desc: "Start a new conversation thread" },
+            { name: "context", args: "",               desc: "Show model context summary" },
+            { name: "help",    args: "",               desc: "Show this help message" },
+            { name: "status",  args: "",               desc: "Show connection and thread info" }
+        ];
+
+        // ── Slash command autocomplete popup ────────────────────────────
+        var popupShell = null;
+        var popupTable = null;
+
+        function createPopup(dialogShell) {
+            popupShell = new Shell(dialogShell, SWT.NO_TRIM | SWT.ON_TOP);
+            var layout = new FillLayout();
+            layout.marginWidth = 0;
+            layout.marginHeight = 0;
+            popupShell.setLayout(layout);
+
+            popupTable = new Table(popupShell, SWT.SINGLE | SWT.FULL_SELECTION);
+            popupTable.setHeaderVisible(false);
+            popupTable.setLinesVisible(false);
+
+            var colCmd = new TableColumn(popupTable, SWT.NONE);
+            colCmd.setWidth(140);
+            var colDesc = new TableColumn(popupTable, SWT.NONE);
+            colDesc.setWidth(260);
+
+            // Click to select a command
+            popupTable.addListener(SWT.MouseDown, function () {
+                display.asyncExec(function () {
+                    confirmPopupSelection();
+                });
+            });
+
+            // Hide when popup loses focus
+            popupShell.addListener(SWT.Deactivate, function () {
+                display.asyncExec(function () {
+                    hidePopup();
+                });
+            });
+        }
+
+        function isPopupVisible() {
+            return popupShell !== null && !popupShell.isDisposed() && popupShell.isVisible();
+        }
+
+        function showPopup(filter) {
+            if (!popupShell || popupShell.isDisposed()) return;
+            if (!w.inputField || w.inputField.isDisposed()) return;
+
+            // Filter commands
+            var matches = [];
+            for (var i = 0; i < COMMAND_META.length; i++) {
+                var cmd = COMMAND_META[i];
+                if (!filter || cmd.name.indexOf(filter) === 0) {
+                    matches.push(cmd);
+                }
+            }
+            if (matches.length === 0) {
+                hidePopup();
+                return;
+            }
+
+            // Populate table
+            popupTable.removeAll();
+            for (var j = 0; j < matches.length; j++) {
+                var item = new TableItem(popupTable, SWT.NONE);
+                item.setText(0, "/" + matches[j].name + matches[j].args);
+                item.setText(1, matches[j].desc);
+            }
+
+            // Select first item
+            popupTable.select(0);
+
+            // Size columns to fit content
+            var cols = popupTable.getColumns();
+            cols[0].pack();
+            cols[1].pack();
+            // Add padding
+            cols[0].setWidth(cols[0].getWidth() + 16);
+            cols[1].setWidth(cols[1].getWidth() + 16);
+
+            // Calculate popup size
+            var totalWidth = cols[0].getWidth() + cols[1].getWidth() + 4;
+            var rowHeight = popupTable.getItemHeight();
+            var totalHeight = Math.min(rowHeight * matches.length + 4, 200);
+
+            // Position above the input field
+            var inputLoc = w.inputField.toDisplay(0, 0);
+            var popupX = inputLoc.x;
+            var popupY = inputLoc.y - totalHeight;
+
+            // If not enough room above, position below
+            if (popupY < 0) {
+                var inputSize = w.inputField.getSize();
+                popupY = inputLoc.y + inputSize.y;
+            }
+
+            // Width: at least as wide as input field
+            var inputWidth = w.inputField.getSize().x;
+            if (totalWidth < inputWidth) totalWidth = inputWidth;
+
+            popupShell.setBounds(popupX, popupY, totalWidth, totalHeight);
+            if (!popupShell.isVisible()) {
+                popupShell.setVisible(true);
+            }
+        }
+
+        function hidePopup() {
+            if (popupShell && !popupShell.isDisposed() && popupShell.isVisible()) {
+                popupShell.setVisible(false);
+            }
+        }
+
+        function selectPopupItem(delta) {
+            if (!isPopupVisible()) return;
+            var count = popupTable.getItemCount();
+            if (count === 0) return;
+            var idx = popupTable.getSelectionIndex();
+            idx += delta;
+            if (idx < 0) idx = count - 1;
+            if (idx >= count) idx = 0;
+            popupTable.select(idx);
+        }
+
+        function confirmPopupSelection() {
+            if (!isPopupVisible()) return;
+            var idx = popupTable.getSelectionIndex();
+            if (idx < 0) return;
+            var item = popupTable.getItem(idx);
+            var cmdText = String(item.getText(0));
+            // Extract just the command name (before any space for args placeholder)
+            var spacePos = cmdText.indexOf(" ");
+            var insertText = spacePos >= 0 ? cmdText.substring(0, spacePos) + " " : cmdText;
+            hidePopup();
+            if (w.inputField && !w.inputField.isDisposed()) {
+                w.inputField.setText(insertText);
+                w.inputField.setSelection(insertText.length);
+                w.inputField.setFocus();
+            }
+        }
+
         function parseAndDispatch(text) {
             text = text.trim();
             if (!text) return;
@@ -1044,9 +1191,55 @@
                     w.inputField.addListener(SWT.KeyDown, function (e) {
                         var kc = Number(e.keyCode);
                         var sm = Number(e.stateMask);
+
+                        // Ctrl+Enter always sends, regardless of popup
                         if ((kc === 13 || kc === Number(SWT.KEYPAD_CR)) && (sm & Number(SWT.CTRL)) !== 0) {
                             e.doit = false;
+                            hidePopup();
                             display.asyncExec(function () { doSend(); });
+                            return;
+                        }
+
+                        // Popup-specific key handling
+                        if (isPopupVisible()) {
+                            if (kc === Number(SWT.ARROW_UP)) {
+                                e.doit = false;
+                                selectPopupItem(-1);
+                                return;
+                            }
+                            if (kc === Number(SWT.ARROW_DOWN)) {
+                                e.doit = false;
+                                selectPopupItem(1);
+                                return;
+                            }
+                            if (kc === 13 || kc === Number(SWT.KEYPAD_CR)) {
+                                e.doit = false;
+                                confirmPopupSelection();
+                                return;
+                            }
+                            if (kc === Number(SWT.ESC)) {
+                                e.doit = false;
+                                hidePopup();
+                                return;
+                            }
+                        }
+                    });
+
+                    // Modify listener for autocomplete popup
+                    w.inputField.addListener(SWT.Modify, function () {
+                        var text = String(w.inputField.getText());
+                        if (text.length > 0 && text.charAt(0) === "/") {
+                            // Check if cursor is still in the command portion (before any space)
+                            var spaceIdx = text.indexOf(" ");
+                            if (spaceIdx === -1) {
+                                // Still typing the command name
+                                var partial = text.substring(1).toLowerCase();
+                                showPopup(partial);
+                            } else {
+                                hidePopup();
+                            }
+                        } else {
+                            hidePopup();
                         }
                     });
 
@@ -1058,6 +1251,9 @@
                     w.sendButton.addListener(SWT.Selection, function () {
                         doSend();
                     });
+
+                    // ── Create autocomplete popup shell ──────────────────
+                    createPopup(parent.getShell());
 
                     // ── Configuration tab ─────────────────────────────────
                     var configTab = new TabItem(tabFolder, SWT.NONE);
@@ -1140,6 +1336,9 @@
                 },
 
                 close: function () {
+                    if (popupShell && !popupShell.isDisposed()) {
+                        popupShell.dispose();
+                    }
                     if (state.connected) {
                         try { codexClient.disconnect(); } catch (e) { /* ignore */ }
                     }
