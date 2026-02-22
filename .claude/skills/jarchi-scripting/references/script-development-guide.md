@@ -225,6 +225,31 @@ const myDialog = {
 
 Dialogs are created by extending JFace's `TitleAreaDialog` using `Java.extend()`. The key pattern is to store the dialog instance in an object so `Java.super()` can reference it.
 
+### Resizable Dialogs (Default)
+
+**All dialogs should be resizable by default.** This requires overriding **both** `isResizable()` and `getShellStyle()`. The `isResizable()` override alone does NOT work because `Java.extend` proxy dispatch fails during the Java superclass constructor — see Pitfall 7 for the full explanation.
+
+**Always include these two overrides in every dialog:**
+
+```javascript
+isResizable: function() {
+    return true;
+},
+getShellStyle: function() {
+    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+},
+```
+
+Optionally set a minimum size in `configureShell` to prevent the dialog from being shrunk too small:
+
+```javascript
+configureShell: function(newShell) {
+    Java.super(myDialog.dialog).configureShell(newShell);
+    newShell.setText("My Dialog");
+    newShell.setMinimumSize(600, 400);
+},
+```
+
 ### Basic Dialog
 
 ```javascript
@@ -580,16 +605,35 @@ if (!view) {
 
 ### Pitfall 7: Non-Resizable Dialogs
 
-`isResizable()` alone does **not** make dialogs resizable in GraalJS. The `Java.extend` proxy may not dispatch the `isResizable()` override correctly during the Java-side `Dialog.create()` call chain, so the shell is created without `SWT.RESIZE` flags.
+`isResizable()` alone does **not** make dialogs resizable in GraalJS. The root cause is a timing issue in how `Java.extend` proxy dispatch interacts with the Java constructor chain:
 
-❌ **Wrong:**
+1. `new ExtendedTitleAreaDialog(shell, {...})` invokes the Java `Dialog` constructor
+2. The constructor calls `isResizable()` to decide shell style bits
+3. At this point, the GraalJS `Java.extend` proxy is **not yet fully wired**, so the JS override is never called — Java sees the base class `return false`
+4. The shell style is set **without** `SWT.RESIZE` or `SWT.MAX`
+5. Later, `Window.createShell()` calls `new Shell(parent, getShellStyle())` — shell style bits are **immutable after creation**
+
+**Why `setShellStyle()` in `configureShell` also fails:** `configureShell()` is called **after** `createShell()` has already created the native OS window. Modifying the stored style field has no effect on the actual window.
+
+**Why `getShellStyle()` works:** It is called by `createShell()` at the moment the shell is instantiated — after the constructor, when JS overrides are fully active.
+
+❌ **Wrong — `isResizable()` alone:**
 ```javascript
 var myDialog = {
     dialog: new ExtendedDialog(shell, {
         isResizable: function() { return true; },  // Not sufficient!
-        // ...
     })
 };
+```
+
+❌ **Also wrong — `setShellStyle` in `configureShell` (too late):**
+```javascript
+configureShell: function(newShell) {
+    Java.super(myDialog.dialog).configureShell(newShell);
+    myDialog.dialog.setShellStyle(
+        myDialog.dialog.getShellStyle() | SWT.RESIZE | SWT.MAX
+    );  // Shell already created — no effect!
+},
 ```
 
 ✅ **Correct — override both `isResizable` and `getShellStyle`:**
@@ -606,8 +650,6 @@ var myDialog = {
     })
 };
 ```
-
-`getShellStyle()` is called by `Window.createShell()` when constructing the shell, so overriding it reliably sets the resize and maximize flags regardless of `isResizable()` dispatch.
 
 ### Pitfall 8: Path Separator Issues
 
@@ -787,6 +829,7 @@ load(__DIR__ + "lib/resolveSelection.js");
 | Import Java class | `var Cls = Java.type("full.class.Name");` |
 | Use swtImports | `var { SWT, Label } = swtImports;` |
 | Create dialog | `Java.extend(TitleAreaDialog)` + `myDialog` object pattern (see Section 5) |
+| Make dialog resizable | Override both `isResizable()` and `getShellStyle()` — see Section 5 |
 | Get selected elements | `resolveSelection.selectedConcepts("element")` (load `lib/resolveSelection.js` first) |
 | Get current view | `resolveSelection.activeView()` (load `lib/resolveSelection.js` first) |
 | Get model | `$.model` or `model` |
