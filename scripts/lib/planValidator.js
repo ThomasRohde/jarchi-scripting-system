@@ -8,13 +8,14 @@
  *    relationship validity via relationshipMatrix, ref_id forward references)
  *
  * Usage:
+ *   load(__DIR__ + "lib/planOps.js");
  *   load(__DIR__ + "lib/relationshipMatrix.js");
  *   load(__DIR__ + "lib/planValidator.js");
  *
  *   var result = planValidator.validate(plan, { scope: scopeMap });
  *   if (!result.schemaValid) log.error("Schema errors: " + result.errors.join(", "));
  *
- * @version 1.1.0
+ * @version 2.0.0
  * @author Thomas Rohde
  * @lastModifiedDate 2026-02-22
  */
@@ -22,22 +23,20 @@
     "use strict";
     if (typeof globalThis !== "undefined" && typeof globalThis.planValidator !== "undefined") return;
 
-    // ── Constants ─────────────────────────────────────────────────────────
+    // ── Constants (from planOps) ─────────────────────────────────────────
 
     var VALID_STATUSES = ["ready", "needs_clarification", "refusal"];
-    var VALID_OPS = ["create_element", "rename_element", "set_property", "create_relationship"];
-    var MAX_ACTIONS = 100;
-    var MAX_SUMMARY_LENGTH = 2000;
-    var MAX_NAME_LENGTH = 1000;
-    var MAX_KEY_LENGTH = 200;
-    var MAX_VALUE_LENGTH = 5000;
-    var MAX_REF_ID_LENGTH = 100;
+    var VALID_OPS = planOps.getValidOps();
+    var MAX_ACTIONS = planOps.MAX_ACTIONS;
+    var MAX_SUMMARY_LENGTH = planOps.MAX_SUMMARY_LENGTH;
+    var MAX_NAME_LENGTH = planOps.MAX_NAME_LENGTH;
+    var MAX_KEY_LENGTH = planOps.MAX_KEY_LENGTH;
+    var MAX_VALUE_LENGTH = planOps.MAX_VALUE_LENGTH;
+    var MAX_REF_ID_LENGTH = planOps.MAX_REF_ID_LENGTH;
+    var MAX_DOC_LENGTH = planOps.MAX_DOC_LENGTH;
+    var MAX_FOLDER_PATH_LENGTH = planOps.MAX_FOLDER_PATH_LENGTH;
 
-    var RELATIONSHIP_LABELS = [
-        "Composition", "Aggregation", "Assignment", "Realization",
-        "Serving", "Access", "Influence", "Triggering", "Flow",
-        "Specialization", "Association"
-    ];
+    var RELATIONSHIP_LABELS = planOps.RELATIONSHIP_LABELS;
 
     // ── Relationship label-to-type mapping ────────────────────────────────
 
@@ -129,8 +128,10 @@
             }
         }
 
-        if (plan.schema_version !== "1.0") {
-            errors.push('schema_version must be "1.0", got: ' + JSON.stringify(plan.schema_version));
+        if (typeof plan.schema_version !== "string" ||
+            planOps.ACCEPTED_VERSIONS.indexOf(plan.schema_version) === -1) {
+            errors.push('schema_version must be one of: ' + planOps.ACCEPTED_VERSIONS.join(", ") +
+                '; got: ' + JSON.stringify(plan.schema_version));
         }
 
         if (typeof plan.status !== "string" || VALID_STATUSES.indexOf(plan.status) === -1) {
@@ -206,10 +207,33 @@
             case "create_relationship":
                 errors = errors.concat(_validateCreateRelationship(action, prefix));
                 break;
+            case "set_documentation":
+                errors = errors.concat(_validateSetDocumentation(action, prefix));
+                break;
+            case "delete_element":
+                errors = errors.concat(_validateDeleteElement(action, prefix));
+                break;
+            case "delete_relationship":
+                errors = errors.concat(_validateDeleteRelationship(action, prefix));
+                break;
+            case "remove_property":
+                errors = errors.concat(_validateRemoveProperty(action, prefix));
+                break;
+            case "create_view":
+                errors = errors.concat(_validateCreateView(action, prefix));
+                break;
+            case "add_to_view":
+                errors = errors.concat(_validateAddToView(action, prefix));
+                break;
+            case "move_to_folder":
+                errors = errors.concat(_validateMoveToFolder(action, prefix));
+                break;
         }
 
         return errors;
     }
+
+    // ── Original 4 op validators ─────────────────────────────────────────
 
     function _validateCreateElement(action, prefix) {
         var errors = [];
@@ -288,6 +312,119 @@
         return errors;
     }
 
+    // ── New v2 op validators ─────────────────────────────────────────────
+
+    function _validateSetDocumentation(action, prefix) {
+        var errors = [];
+        var allowed = ["op", "element_id", "documentation"];
+
+        _checkExtraProps(action, allowed, prefix, errors);
+        _checkRequiredString(action, "element_id", prefix, errors, 1);
+
+        if (!("documentation" in action) || typeof action.documentation !== "string") {
+            errors.push(prefix + '"documentation" must be a string');
+        } else if (action.documentation.length > MAX_DOC_LENGTH) {
+            errors.push(prefix + '"documentation" exceeds ' + MAX_DOC_LENGTH + " characters");
+        }
+
+        return errors;
+    }
+
+    function _validateDeleteElement(action, prefix) {
+        var errors = [];
+        var allowed = ["op", "element_id"];
+
+        _checkExtraProps(action, allowed, prefix, errors);
+        _checkRequiredString(action, "element_id", prefix, errors, 1);
+
+        return errors;
+    }
+
+    function _validateDeleteRelationship(action, prefix) {
+        var errors = [];
+        var allowed = ["op", "relationship_id"];
+
+        _checkExtraProps(action, allowed, prefix, errors);
+        _checkRequiredString(action, "relationship_id", prefix, errors, 1);
+
+        return errors;
+    }
+
+    function _validateRemoveProperty(action, prefix) {
+        var errors = [];
+        var allowed = ["op", "element_id", "key"];
+
+        _checkExtraProps(action, allowed, prefix, errors);
+        _checkRequiredString(action, "element_id", prefix, errors, 1);
+        _checkRequiredString(action, "key", prefix, errors, 1, MAX_KEY_LENGTH);
+
+        return errors;
+    }
+
+    function _validateCreateView(action, prefix) {
+        var errors = [];
+        var allowed = ["op", "name", "ref_id"];
+
+        _checkExtraProps(action, allowed, prefix, errors);
+        _checkRequiredString(action, "name", prefix, errors, 1, MAX_NAME_LENGTH);
+
+        if ("ref_id" in action && action.ref_id !== null) {
+            if (typeof action.ref_id !== "string") {
+                errors.push(prefix + '"ref_id" must be a string');
+            } else if (action.ref_id.length === 0) {
+                errors.push(prefix + '"ref_id" must be non-empty');
+            } else if (action.ref_id.length > MAX_REF_ID_LENGTH) {
+                errors.push(prefix + '"ref_id" exceeds ' + MAX_REF_ID_LENGTH + " characters");
+            }
+        }
+
+        return errors;
+    }
+
+    function _validateAddToView(action, prefix) {
+        var errors = [];
+        var allowed = ["op", "view_id", "element_id", "x", "y", "width", "height"];
+
+        _checkExtraProps(action, allowed, prefix, errors);
+        _checkRequiredString(action, "view_id", prefix, errors, 1);
+        _checkRequiredString(action, "element_id", prefix, errors, 1);
+
+        // Optional numeric fields
+        if ("x" in action && action.x !== null && typeof action.x !== "number") {
+            errors.push(prefix + '"x" must be a number');
+        }
+        if ("y" in action && action.y !== null && typeof action.y !== "number") {
+            errors.push(prefix + '"y" must be a number');
+        }
+        if ("width" in action && action.width !== null) {
+            if (typeof action.width !== "number") {
+                errors.push(prefix + '"width" must be a number');
+            } else if (action.width < 10) {
+                errors.push(prefix + '"width" must be at least 10');
+            }
+        }
+        if ("height" in action && action.height !== null) {
+            if (typeof action.height !== "number") {
+                errors.push(prefix + '"height" must be a number');
+            } else if (action.height < 10) {
+                errors.push(prefix + '"height" must be at least 10');
+            }
+        }
+
+        return errors;
+    }
+
+    function _validateMoveToFolder(action, prefix) {
+        var errors = [];
+        var allowed = ["op", "element_id", "folder_path"];
+
+        _checkExtraProps(action, allowed, prefix, errors);
+        _checkRequiredString(action, "element_id", prefix, errors, 1);
+        _checkRequiredString(action, "folder_path", prefix, errors, 1, MAX_FOLDER_PATH_LENGTH);
+
+        return errors;
+    }
+
     // ── Helper: check for extra properties ───────────────────────────────
 
     function _checkExtraProps(obj, allowed, prefix, errors) {
@@ -323,16 +460,20 @@
 
         // Track ref_ids declared by create_element actions
         var declaredRefIds = {};
+        // Track ref_ids declared by create_view actions
+        var declaredViewRefIds = {};
         // Track duplicates
         var renameTargets = {};
         var propTargets = {};
+        // Track deleted element IDs (to catch use-after-delete)
+        var deletedIds = {};
 
         for (var i = 0; i < plan.actions.length; i++) {
             var action = plan.actions[i];
             var prefix = "actions[" + i + "]: ";
 
             switch (action.op) {
-                case "create_element":
+                case "create_element": {
                     // Validate element type
                     var resolvedType = _resolveElementType(action.type);
                     if (action.type && !resolvedType) {
@@ -340,33 +481,36 @@
                     }
                     // Track ref_id for forward references
                     if (action.ref_id) {
-                        if (declaredRefIds[action.ref_id]) {
+                        if (declaredRefIds[action.ref_id] || declaredViewRefIds[action.ref_id]) {
                             errors.push(prefix + 'duplicate ref_id "' + action.ref_id + '"');
                         }
                         declaredRefIds[action.ref_id] = { index: i, type: resolvedType };
                     }
                     break;
+                }
 
-                case "rename_element":
-                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, errors);
+                case "rename_element": {
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
                     if (renameTargets[action.element_id]) {
                         warnings.push(prefix + 'element "' + action.element_id + '" renamed multiple times');
                     }
                     renameTargets[action.element_id] = true;
                     break;
+                }
 
-                case "set_property":
-                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, errors);
+                case "set_property": {
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
                     var propKey = action.element_id + "|" + action.key;
                     if (propTargets[propKey]) {
                         warnings.push(prefix + 'property "' + action.key + '" set multiple times on same element');
                     }
                     propTargets[propKey] = true;
                     break;
+                }
 
                 case "create_relationship": {
-                    var sourceInfo = _semanticResolveId(action.source_id, prefix + "source: ", scope, declaredRefIds, errors);
-                    var targetInfo = _semanticResolveId(action.target_id, prefix + "target: ", scope, declaredRefIds, errors);
+                    var sourceInfo = _semanticResolveId(action.source_id, prefix + "source: ", scope, declaredRefIds, deletedIds, errors);
+                    var targetInfo = _semanticResolveId(action.target_id, prefix + "target: ", scope, declaredRefIds, deletedIds, errors);
 
                     // Validate relationship is allowed between source and target types
                     if (sourceInfo && targetInfo && sourceInfo.type && targetInfo.type) {
@@ -387,6 +531,77 @@
                     }
                     break;
                 }
+
+                case "set_documentation": {
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    break;
+                }
+
+                case "delete_element": {
+                    // Verify the target exists and is an element (not a relationship)
+                    var delEl = _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    if (delEl) {
+                        var modelEl = $("#" + action.element_id).first();
+                        if (modelEl && modelEl.type && modelEl.type.indexOf("-relationship") >= 0) {
+                            errors.push(prefix + '"' + action.element_id + '" is a relationship, use delete_relationship instead');
+                        } else {
+                            // Check how many relationships will be cascaded
+                            if (modelEl) {
+                                var relCount = $(modelEl).rels().size();
+                                if (relCount > 0) {
+                                    warnings.push(prefix + 'deleting "' + (modelEl.name || action.element_id) +
+                                        '" will cascade-delete ' + relCount + ' relationship(s)');
+                                }
+                            }
+                        }
+                        deletedIds[action.element_id] = true;
+                    }
+                    break;
+                }
+
+                case "delete_relationship": {
+                    // Verify the target exists and is a relationship
+                    var delRel = $("#" + action.relationship_id).first();
+                    if (!delRel) {
+                        errors.push(prefix + 'relationship "' + action.relationship_id + '" not found in model');
+                    } else if (!delRel.type || delRel.type.indexOf("-relationship") < 0) {
+                        errors.push(prefix + '"' + action.relationship_id + '" is not a relationship, use delete_element instead');
+                    }
+                    deletedIds[action.relationship_id] = true;
+                    break;
+                }
+
+                case "remove_property": {
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    break;
+                }
+
+                case "create_view": {
+                    if (action.ref_id) {
+                        if (declaredRefIds[action.ref_id] || declaredViewRefIds[action.ref_id]) {
+                            errors.push(prefix + 'duplicate ref_id "' + action.ref_id + '"');
+                        }
+                        declaredViewRefIds[action.ref_id] = { index: i };
+                    }
+                    break;
+                }
+
+                case "add_to_view": {
+                    // Resolve view_id from view ref_ids or model
+                    _semanticResolveViewId(action.view_id, prefix, declaredViewRefIds, errors);
+                    // Resolve element_id from element ref_ids or model
+                    _semanticResolveId(action.element_id, prefix + "element: ", scope, declaredRefIds, deletedIds, errors);
+                    break;
+                }
+
+                case "move_to_folder": {
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    // Warn if folder path likely doesn't exist (can't fully validate without model traversal)
+                    if (action.folder_path && action.folder_path.indexOf("/") === -1) {
+                        // Single-segment path is fine — it's a top-level folder
+                    }
+                    break;
+                }
             }
         }
 
@@ -397,7 +612,13 @@
      * Resolve an element ID — either from model, from a ref_id, or report error.
      * Returns { type: string } or null.
      */
-    function _semanticResolveId(elementId, prefix, scope, declaredRefIds, errors) {
+    function _semanticResolveId(elementId, prefix, scope, declaredRefIds, deletedIds, errors) {
+        // Check if referencing a deleted element
+        if (deletedIds && deletedIds[elementId]) {
+            errors.push(prefix + 'element "' + elementId + '" was deleted by a prior action');
+            return null;
+        }
+
         // Check if it's a ref_id from a prior create_element
         if (declaredRefIds[elementId]) {
             return { type: declaredRefIds[elementId].type };
@@ -414,6 +635,30 @@
             return null;
         }
         return { type: el.type };
+    }
+
+    /**
+     * Resolve a view ID — either from view ref_ids or from the model.
+     * Returns true if resolved, false otherwise.
+     */
+    function _semanticResolveViewId(viewId, prefix, declaredViewRefIds, errors) {
+        // Check if it's a ref_id from a prior create_view
+        if (declaredViewRefIds[viewId]) {
+            return true;
+        }
+
+        // Check model for existing view
+        var view = $("#" + viewId).first();
+        if (!view) {
+            errors.push(prefix + 'view "' + viewId + '" not found in model (and no matching ref_id)');
+            return false;
+        }
+        // Verify it's actually a view
+        if (view.type && view.type.indexOf("diagram") < 0 && view.type !== "archimate-diagram-model") {
+            errors.push(prefix + '"' + viewId + '" is not a view');
+            return false;
+        }
+        return true;
     }
 
     // ── Public API ───────────────────────────────────────────────────────

@@ -11,7 +11,7 @@
  * - Dual-mode fallback: plain Text widget if Browser is unavailable
  *
  * Dependencies (must be loaded before this module):
- *   log, swtImports, codexClient, planValidator, planExecutor, marked (vendor/marked/marked-sync.js)
+ *   log, swtImports, planOps, codexClient, planValidator, planExecutor, marked (vendor/marked/marked-sync.js)
  *
  * Usage:
  *   load(__DIR__ + "vendor/marked/marked-sync.js");
@@ -79,7 +79,8 @@
             turnCount: 0,
             modelContextSent: false,
             lastPlan: null,
-            busy: false
+            busy: false,
+            cancelled: false
         };
 
         // ── Widget refs ──────────────────────────────────────────────────
@@ -356,6 +357,10 @@
             var msg = findMessage(streamingMsgId);
             if (!msg) { streamingMsgId = null; return; }
             msg.streaming = false;
+            if (!w.chatBrowser || w.chatBrowser.isDisposed()) {
+                streamingMsgId = null;
+                return;
+            }
             var text = msg.text;
             var bodyHtml;
             if (text.trim()) {
@@ -552,6 +557,7 @@
 
         function handleChat(text) {
             state.busy = true;
+            state.cancelled = false;
             updateUI();
 
             appendChat("[You]", text);
@@ -576,6 +582,7 @@
                         appendRaw(delta);
                     },
                     onPoll: function () {
+                        if (state.cancelled) throw new Error("Cancelled");
                         try {
                             while (display.readAndDispatch()) { /* pump */ }
                         } catch (e) { /* ignore pump errors */ }
@@ -614,7 +621,9 @@
                 } else {
                     appendRaw("\n");
                 }
-                appendChat("[Error]", "Request failed: " + e.message);
+                if (String(e.message) !== "Cancelled") {
+                    appendChat("[Error]", "Request failed: " + e.message);
+                }
             }
 
             state.busy = false;
@@ -633,9 +642,11 @@
             }
 
             state.busy = true;
+            state.cancelled = false;
             updateUI();
             appendChat("[You]", "/plan " + args);
-            appendChat("[System]", "Building planning context...");
+
+            var useBrowser = w.chatBrowser && !w.chatBrowser.isDisposed();
 
             try {
                 var context = codexClient.buildPlanningContext({
@@ -643,13 +654,13 @@
                     relationships: true,
                     includeDocumentation: true
                 });
-                appendChat("[System]", "Context: " + context.scope.element_count +
-                    " elements, " + context.scope.relationship_count + " relationships");
 
-                appendChat("[System]", "Requesting plan...");
+                appendChat("[System]", "Requesting plan... (context: " + context.scope.element_count +
+                    " elements, " + context.scope.relationship_count + " relationships)");
 
-                // In fallback mode, show a prefix line for streaming dots
-                if (!w.chatBrowser || w.chatBrowser.isDisposed()) {
+                if (useBrowser) {
+                    browserStartStreaming("plan");
+                } else {
                     var ts = _timestamp();
                     appendRaw("[" + ts + "] [Plan] ");
                 }
@@ -657,16 +668,24 @@
                 var planResult = codexClient.askPlan(state.threadId, args, {
                     context: context,
                     onDelta: function (delta) {
-                        // Show streaming progress dots
+                        appendRaw(delta);
                     },
                     onPoll: function () {
+                        if (state.cancelled) throw new Error("Cancelled");
                         try {
                             while (display.readAndDispatch()) { /* pump */ }
                         } catch (e) { /* ignore */ }
                     }
                 });
 
-                if (!w.chatBrowser || w.chatBrowser.isDisposed()) {
+                if (useBrowser) {
+                    // If no text streamed (structured output), show brief status
+                    var streamMsg = findMessage(streamingMsgId);
+                    if (streamMsg && !streamMsg.text.trim()) {
+                        streamMsg.text = "*Plan received*";
+                    }
+                    browserFinalizeStreaming();
+                } else {
                     appendRaw("\n");
                 }
 
@@ -719,7 +738,10 @@
 
                 state.lastPlan = plan;
             } catch (e) {
-                appendChat("[Error]", "Plan failed: " + e.message);
+                if (useBrowser) browserFinalizeStreaming();
+                if (String(e.message) !== "Cancelled") {
+                    appendChat("[Error]", "Plan failed: " + e.message);
+                }
             }
 
             state.busy = false;
@@ -1336,6 +1358,7 @@
                 },
 
                 close: function () {
+                    state.cancelled = true;
                     if (popupShell && !popupShell.isDisposed()) {
                         popupShell.dispose();
                     }

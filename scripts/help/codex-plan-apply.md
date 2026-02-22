@@ -22,9 +22,20 @@ Sends a natural-language change request to a Codex app-server, receives a schema
 | Operation | Description |
 |-----------|-------------|
 | `create_element` | Create a new ArchiMate element of any type |
-| `rename_element` | Rename an existing element |
-| `set_property` | Set a property key-value pair on an element |
+| `rename_element` | Rename an existing element or relationship |
+| `set_property` | Set a property key-value pair on an element or relationship |
 | `create_relationship` | Create a relationship between two elements |
+| `set_documentation` | Set documentation text on an element or relationship |
+| `delete_element` | Delete an element (cascades: removes attached relationships) |
+| `delete_relationship` | Delete a relationship |
+| `remove_property` | Remove a property from an element or relationship |
+| `create_view` | Create a new ArchiMate diagram view |
+| `add_to_view` | Place an element on a view (auto-grid if coordinates omitted) |
+| `move_to_folder` | Move an element to a folder by `/`-separated path |
+
+## Post-Processing
+
+After all `add_to_view` actions are applied, the executor automatically adds visual connections for any relationships that exist between elements placed on each view. You do not need to create connections manually.
 
 ## Plan Statuses
 
@@ -39,9 +50,9 @@ Sends a natural-language change request to a Codex app-server, receives a schema
 Plans go through two validation levels:
 
 1. **Schema validation** — checks structure, required fields, types, and value constraints
-2. **Semantic validation** — checks element existence, ref_id consistency, and relationship validity against the ArchiMate specification matrix
+2. **Semantic validation** — checks element existence, ref_id consistency, relationship validity against the ArchiMate specification matrix, use-after-delete detection, and view/folder resolution
 
-Warnings (e.g., spec-invalid relationships) are shown but don't block execution. Errors (e.g., missing elements) prevent the plan from being applied.
+Warnings (e.g., spec-invalid relationships, cascade deletions) are shown but don't block execution. Errors (e.g., missing elements, duplicate ref_ids) prevent the plan from being applied.
 
 ## Troubleshooting
 
@@ -50,4 +61,5 @@ Warnings (e.g., spec-invalid relationships) are shown but don't block execution.
 | "Failed to extract JSON" | The AI response wasn't valid JSON — try rephrasing your request more concisely |
 | "Schema validation failed" | The plan structure is invalid — this is usually an AI output issue; retry |
 | "Element not found" | The plan references an element ID that doesn't exist in the model |
+| "Folder not found" | The folder path doesn't match the model's folder structure |
 | Connection errors | Ensure the Codex app-server is running on the expected port |

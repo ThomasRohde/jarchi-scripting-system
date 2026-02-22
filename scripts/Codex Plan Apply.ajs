@@ -12,6 +12,7 @@ console.show();
 
 load(__DIR__ + "lib/log.js");
 load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/planOps.js");
 load(__DIR__ + "lib/relationshipMatrix.js");
 load(__DIR__ + "lib/planValidator.js");
 load(__DIR__ + "lib/planExecutor.js");
@@ -141,7 +142,11 @@ load(__DIR__ + "lib/codexClient.js");
         }
 
         if (result.ok) {
-            log.success("Done. Applied " + result.applied + " action(s).");
+            var doneMsg = "Done. Applied " + result.applied + " action(s).";
+            if (result.autoConnected > 0) {
+                doneMsg += " Auto-connected " + result.autoConnected + " relationship(s) on view(s).";
+            }
+            log.success(doneMsg);
         } else {
             log.warn("Completed with errors. Applied: " + result.applied +
                 ", Failed: " + result.failed + ", Skipped: " + result.skipped);

@@ -838,46 +838,9 @@
 
     /**
      * The ArchiChangePlan JSON Schema, used as outputSchema for structured generation.
-     * Mirrors scripts/schemas/archi-change-plan-v1.json.
+     * Generated from planOps.buildOutputSchema() — single source of truth.
      */
-    var _OUTPUT_SCHEMA = {
-        "type": "object",
-        "required": ["schema_version", "status", "summary", "actions", "questions"],
-        "additionalProperties": false,
-        "properties": {
-            "schema_version": { "type": "string" },
-            "status": {
-                "type": "string",
-                "enum": ["ready", "needs_clarification", "refusal"]
-            },
-            "summary": { "type": "string" },
-            "questions": {
-                "type": ["array", "null"],
-                "items": { "type": "string" }
-            },
-            "actions": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["op", "type", "name", "ref_id", "element_id", "new_name", "key", "value", "source_id", "target_id", "relationship_type"],
-                    "additionalProperties": false,
-                    "properties": {
-                        "op": { "type": "string", "enum": ["create_element", "rename_element", "set_property", "create_relationship"] },
-                        "type": { "type": ["string", "null"] },
-                        "name": { "type": ["string", "null"] },
-                        "ref_id": { "type": ["string", "null"] },
-                        "element_id": { "type": ["string", "null"] },
-                        "new_name": { "type": ["string", "null"] },
-                        "key": { "type": ["string", "null"] },
-                        "value": { "type": ["string", "null"] },
-                        "source_id": { "type": ["string", "null"] },
-                        "target_id": { "type": ["string", "null"] },
-                        "relationship_type": { "type": ["string", "null"] }
-                    }
-                }
-            }
-        }
-    };
+    var _OUTPUT_SCHEMA = planOps.buildOutputSchema();
 
     // ── Planning context builder ─────────────────────────────────────────
 
@@ -902,12 +865,8 @@
         var includeProps = options.includeProperties === true;
         var maxElements = options.maxElements || 200;
 
-        var allowedOps = options.allowedOps || ["create_element", "rename_element", "set_property", "create_relationship"];
-        var allowedRelTypes = [
-            "Composition", "Aggregation", "Assignment", "Realization",
-            "Serving", "Access", "Influence", "Triggering", "Flow",
-            "Specialization", "Association"
-        ];
+        var allowedOps = options.allowedOps || planOps.getValidOps();
+        var allowedRelTypes = planOps.RELATIONSHIP_LABELS;
 
         // ── Collect elements ─────────────────────────────────────────────
         var elementSource = options.elements || $("element");
@@ -957,17 +916,45 @@
 
         var scopeMode = options.elements ? "selected" : "all";
 
+        // ── Collect views ───────────────────────────────────────────────
+        var viewList = [];
+        $("archimate-diagram-model").each(function (v) {
+            viewList.push({ id: v.id, name: v.name });
+        });
+
+        // ── Collect folder paths ────────────────────────────────────────
+        var folderPaths = [];
+        function _collectFolders(parent, prefix) {
+            $(parent).children("folder").each(function (f) {
+                var path = prefix ? prefix + "/" + f.name : f.name;
+                folderPaths.push(path);
+                _collectFolders(f, path);
+            });
+        }
+        // Walk top-level folders
+        $("folder").each(function (f) {
+            var p = $(f).parent();
+            // Top-level folders have no folder parent
+            if (!p || p.size() === 0 || !p.first() || !p.first().type || p.first().type.indexOf("folder") < 0) {
+                folderPaths.push(f.name);
+                _collectFolders(f, f.name);
+            }
+        });
+
         return {
-            schema_version: "1.0",
+            schema_version: planOps.SCHEMA_VERSION,
             scope: {
                 mode: scopeMode,
                 element_count: elementList.length,
-                relationship_count: relList.length
+                relationship_count: relList.length,
+                view_count: viewList.length
             },
             allowed_ops: allowedOps,
             allowed_relationship_types: allowedRelTypes,
             elements: elementList,
-            relationships: relList
+            relationships: relList,
+            views: viewList,
+            folders: folderPaths
         };
     }
 
@@ -980,14 +967,23 @@
             "2. For existing elements, use their IDs from the context below — never invent IDs for existing elements.\n" +
             "3. For new elements, use create_element with a ref_id (e.g. \"ref-1\", \"ref-2\"). " +
                "Subsequent actions can reference these ref_ids in element_id, source_id, or target_id fields.\n" +
-            "4. Allowed operations: " + context.allowed_ops.join(", ") + "\n" +
-            "5. Allowed relationship types: " + context.allowed_relationship_types.join(", ") + "\n" +
-            "6. If the request is unclear, set status to \"needs_clarification\" with questions.\n" +
-            "7. If the request cannot or should not be fulfilled, set status to \"refusal\".\n" +
-            "8. If you can fulfill it, set status to \"ready\" with concrete actions.\n" +
-            "9. schema_version must be \"1.0\".\n" +
-            "10. Do not wrap the JSON in markdown code fences.\n" +
-            "11. Order actions so create_element comes before any action that references its ref_id.\n\n" +
+            "4. For new views, use create_view with a ref_id. " +
+               "Subsequent add_to_view actions can reference this ref_id in the view_id field.\n" +
+            "5. Allowed operations: " + context.allowed_ops.join(", ") + "\n" +
+            "6. Allowed relationship types: " + context.allowed_relationship_types.join(", ") + "\n" +
+            "7. If the request is unclear, set status to \"needs_clarification\" with questions.\n" +
+            "8. If the request cannot or should not be fulfilled, set status to \"refusal\".\n" +
+            "9. If you can fulfill it, set status to \"ready\" with concrete actions.\n" +
+            "10. schema_version must be \"" + planOps.SCHEMA_VERSION + "\".\n" +
+            "11. Do not wrap the JSON in markdown code fences.\n" +
+            "12. Order actions: create_element/create_view before any action that references their ref_id. " +
+                "Place delete actions last.\n" +
+            "13. element_id accepts element IDs, relationship IDs, OR ref_ids for: " +
+                "set_documentation, set_property, rename_element, remove_property, move_to_folder.\n" +
+            "14. delete_element cascades — it automatically removes all attached relationships.\n" +
+            "15. add_to_view coordinates (x, y, width, height) are optional — omit them for auto-grid layout.\n" +
+            "16. Connections between elements on a view are auto-added — do NOT create them manually.\n" +
+            "17. move_to_folder uses /-separated paths matching the folder structure (e.g. \"Business/Actors\").\n\n" +
             "## Model Context\n" +
             JSON.stringify(context, null, 2) + "\n\n" +
             "## User Request\n" +
@@ -1169,6 +1165,9 @@
             result.error = "Failed to extract JSON from response";
             return result;
         }
+
+        // Normalize flat structured output: null out fields that don't belong to each op
+        planOps.normalizeActions(plan);
         result.plan = plan;
 
         // Validate
