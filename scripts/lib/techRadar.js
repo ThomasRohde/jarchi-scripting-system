@@ -31,8 +31,8 @@
     var RADAR = {
         // Image dimensions
         W:      1100,                        // image width (px)
-        margin: 55,                          // space between radar circle and image edge
-        scale:  1.4,                         // global scale factor (e.g. 2.0 for 2× resolution)
+        margin: 60,                          // space between radar circle and image edge
+        scale:  2.0,                         // global scale factor (e.g. 2.0 for high resolution)
 
         // Content
         title:     "Technology Radar",
@@ -41,24 +41,24 @@
 
         // Colours — ring fills (semi-transparent)
         ringFill: [
-            new Color(46,  204, 113,  55),   // Adopt  — green
-            new Color(52,  152, 219,  55),   // Trial  — blue
-            new Color(241, 196,  15,  55),   // Assess — amber
-            new Color(231,  76,  60,  50)    // Hold   — red
+            new Color(20,  184, 166,  25),   // Adopt  — teal
+            new Color(99,  102, 241,  25),   // Trial  — indigo
+            new Color(168,  85, 247,  25),   // Assess — violet
+            new Color(244,  63,  94,  25)    // Hold   — rose
         ],
         ringBorder: [
-            new Color(39,  174,  96),
-            new Color(41,  128, 185),
-            new Color(243, 156,  18),
-            new Color(192,  57,  43)
+            new Color(20,  184, 166, 150),
+            new Color(99,  102, 241, 150),
+            new Color(168,  85, 247, 150),
+            new Color(244,  63,  94, 150)
         ],
-        bgColor:   new Color(252, 252, 255),
-        textColor: new Color(44,  62,  80),
+        bgColor:   new Color(255, 255, 255),
+        textColor: new Color(30,  41,  59),
 
         // Blips
-        blipR:      14,                      // blip radius (px)
-        blipAlpha:  210,                     // blip fill opacity (0-255)
-        blipFont:   12,                       // number label inside blip (pt)
+        blipR:      16,                      // blip radius (px)
+        blipAlpha:  230,                     // blip fill opacity (0-255)
+        blipFont:   13,                       // number label inside blip (pt)
 
         // Placement — collision avoidance tuning
         padDeg:         12,                  // angular padding from quadrant edges (°)
@@ -69,26 +69,27 @@
         jitterRadius:   0.3,                 // radial jitter  (0–2; 1.0 = ±50% of lane)
 
         // Font sizes (pt)
-        titleFont:       26,
-        ringLabelFont:   12,
-        quadLabelFont:   18,
-        quadLabelOffset: 40,                 // quadrant label distance beyond outer ring (px)
+        fontFamily:      "Segoe UI",         // beautiful modern font on Windows
+        titleFont:       32,
+        ringLabelFont:   14,
+        quadLabelFont:   20,
+        quadLabelOffset: 45,                 // quadrant label distance beyond outer ring (px)
 
         // Layout
-        titleH:          50,                 // space above the radar for title (px)
-        ringBorderW:     1.5,                // ring circle stroke width
-        dividerDash:     [7.0, 5.0],         // quadrant divider dash pattern [dash, gap]
-        dividerOverhang: 8,                  // divider overshoot past outer ring (px)
+        titleH:          70,                 // space above the radar for title (px)
+        ringBorderW:     2.0,                // ring circle stroke width
+        dividerDash:     [8.0, 6.0],         // quadrant divider dash pattern [dash, gap]
+        dividerOverhang: 12,                 // divider overshoot past outer ring (px)
 
         // Legend
-        legendGap:        28,                // gap between radar bottom and legend (px)
-        legendHeaderH:    20,                // legend header row height (px)
-        legendRowH:       16,                // legend entry row height (px)
-        legendPadBottom:  12,                // padding below last legend row (px)
-        legendHeaderFont: 12,                // legend quadrant header font size (pt)
-        legendFont:       10,                // legend entry font size (pt)
-        legendDotR:       9,                 // legend colour dot diameter (px)
-        legendMaxName:    28                 // truncate names longer than this
+        legendGap:        40,                // gap between radar bottom and legend (px)
+        legendHeaderH:    28,                // legend header row height (px)
+        legendRowH:       20,                // legend entry row height (px)
+        legendPadBottom:  20,                // padding below last legend row (px)
+        legendHeaderFont: 14,                // legend quadrant header font size (pt)
+        legendFont:       12,                // legend entry font size (pt)
+        legendDotR:       10,                // legend colour dot diameter (px)
+        legendMaxName:    35                 // truncate names longer than this
     };
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -429,7 +430,7 @@
 
         // ── Ring name labels (centred along horizontal axis) ────────────
         g.setStroke(new BasicStroke(1.0 * sc));
-        g.setFont(new Font("SansSerif", Font.BOLD, Math.round(RADAR.ringLabelFont * sc)));
+        g.setFont(new Font(RADAR.fontFamily, Font.BOLD, Math.round(RADAR.ringLabelFont * sc)));
         for (var ri = 0; ri < nR; ri++) {
             var ro  = ringR[ri];
             var ri2 = ri > 0 ? ringR[ri - 1] : 0;
@@ -449,7 +450,7 @@
         //
         // Placed on the 45° diagonal at a radial distance just outside the
         // outermost ring.  cos(45°) ≈ 0.707 converts radial → x/y offset.
-        g.setFont(new Font("SansSerif", Font.ITALIC + Font.BOLD, Math.round(RADAR.quadLabelFont * sc)));
+        g.setFont(new Font(RADAR.fontFamily, Font.BOLD, Math.round(RADAR.quadLabelFont * sc)));
         g.setColor(new Color(100, 110, 130));
 
         var labelDist = maxR + RADAR.quadLabelOffset * sc;
@@ -489,28 +490,45 @@
             var bc   = RADAR.ringBorder[blip.ring];
             var fill = new Color(bc.getRed(), bc.getGreen(), bc.getBlue(), RADAR.blipAlpha);
 
+            // Drop shadow
+            var shadowColor = new Color(0, 0, 0, 40);
+            var sx = bx + Math.round(1.5 * sc);
+            var sy = by + Math.round(1.5 * sc);
+
             if (blip.isNew) {
+                var shadowTri = new Polygon();
+                shadowTri.addPoint(sx,        sy - brad - triAdj);
+                shadowTri.addPoint(sx + brad + Math.round(triAdj/2), sy + brad - triAdj);
+                shadowTri.addPoint(sx - brad - Math.round(triAdj/2), sy + brad - triAdj);
+                g.setColor(shadowColor);
+                g.fillPolygon(shadowTri);
+
                 g.setColor(fill);
                 var tri = new Polygon();
-                tri.addPoint(bx,        by - brad);
-                tri.addPoint(bx + brad, by + brad - triAdj);
-                tri.addPoint(bx - brad, by + brad - triAdj);
+                tri.addPoint(bx,        by - brad - triAdj);
+                tri.addPoint(bx + brad + Math.round(triAdj/2), by + brad - triAdj);
+                tri.addPoint(bx - brad - Math.round(triAdj/2), by + brad - triAdj);
                 g.fillPolygon(tri);
-                g.setColor(new Color(60, 60, 80));
-                g.setStroke(new BasicStroke(1.2 * sc));
+                g.setColor(Color.WHITE);
+                g.setStroke(new BasicStroke(1.5 * sc));
                 g.drawPolygon(tri);
                 g.setStroke(new BasicStroke(1.0 * sc));
             } else {
+                g.setColor(shadowColor);
+                g.fillOval(sx - brad, sy - brad, brad * 2, brad * 2);
+
                 g.setColor(fill);
                 g.fillOval(bx - brad, by - brad, brad * 2, brad * 2);
-                g.setColor(new Color(0, 0, 0, 50));
+                g.setColor(Color.WHITE);
+                g.setStroke(new BasicStroke(1.5 * sc));
                 g.drawOval(bx - brad, by - brad, brad * 2, brad * 2);
+                g.setStroke(new BasicStroke(1.0 * sc));
             }
 
             // Number label inside blip — shift to triangle centroid when needed
             var labelY = blip.isNew ? by + Math.round((brad - triAdj) / 3) : by;
             g.setColor(Color.WHITE);
-            g.setFont(new Font("SansSerif", Font.BOLD, Math.round(RADAR.blipFont * sc)));
+            g.setFont(new Font(RADAR.fontFamily, Font.BOLD, Math.round(RADAR.blipFont * sc)));
             var fm = g.getFontMetrics();
             var ns = String(n);
             drawText(g, ns, bx - fm.stringWidth(new JString(ns)) / 2,
@@ -518,7 +536,7 @@
         });
 
         // ── Title ───────────────────────────────────────────────────────
-        g.setFont(new Font("SansSerif", Font.BOLD, Math.round(RADAR.titleFont * sc)));
+        g.setFont(new Font(RADAR.fontFamily, Font.BOLD, Math.round(RADAR.titleFont * sc)));
         g.setColor(RADAR.textColor);
         var title = RADAR.title;
         var fm    = g.getFontMetrics();
@@ -534,11 +552,11 @@
         for (var qi = 0; qi < 4; qi++) {
             var lx = qi * colW + legendPadX;
 
-            g.setFont(new Font("SansSerif", Font.BOLD, Math.round(RADAR.legendHeaderFont * sc)));
+            g.setFont(new Font(RADAR.fontFamily, Font.BOLD, Math.round(RADAR.legendHeaderFont * sc)));
             g.setColor(new Color(60, 70, 90));
             drawText(g, RADAR.quadrants[qi].replace("\n", " "), lx, legTopY);
 
-            g.setFont(new Font("SansSerif", Font.PLAIN, Math.round(RADAR.legendFont * sc)));
+            g.setFont(new Font(RADAR.fontFamily, Font.PLAIN, Math.round(RADAR.legendFont * sc)));
             var rows = legendRows[qi];
             for (var li = 0; li < rows.length; li++) {
                 var entry = rows[li];
