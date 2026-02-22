@@ -490,7 +490,7 @@
                 }
 
                 case "rename_element": {
-                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors, declaredViewRefIds);
                     if (renameTargets[action.element_id]) {
                         warnings.push(prefix + 'element "' + action.element_id + '" renamed multiple times');
                     }
@@ -499,7 +499,7 @@
                 }
 
                 case "set_property": {
-                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors, declaredViewRefIds);
                     var propKey = action.element_id + "|" + action.key;
                     if (propTargets[propKey]) {
                         warnings.push(prefix + 'property "' + action.key + '" set multiple times on same element');
@@ -509,8 +509,8 @@
                 }
 
                 case "create_relationship": {
-                    var sourceInfo = _semanticResolveId(action.source_id, prefix + "source: ", scope, declaredRefIds, deletedIds, errors);
-                    var targetInfo = _semanticResolveId(action.target_id, prefix + "target: ", scope, declaredRefIds, deletedIds, errors);
+                    var sourceInfo = _semanticResolveId(action.source_id, prefix + "source: ", scope, declaredRefIds, deletedIds, errors, declaredViewRefIds);
+                    var targetInfo = _semanticResolveId(action.target_id, prefix + "target: ", scope, declaredRefIds, deletedIds, errors, declaredViewRefIds);
 
                     // Validate relationship is allowed between source and target types
                     if (sourceInfo && targetInfo && sourceInfo.type && targetInfo.type) {
@@ -533,13 +533,13 @@
                 }
 
                 case "set_documentation": {
-                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors, declaredViewRefIds);
                     break;
                 }
 
                 case "delete_element": {
                     // Verify the target exists and is an element (not a relationship)
-                    var delEl = _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    var delEl = _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors, declaredViewRefIds);
                     if (delEl) {
                         var modelEl = $("#" + action.element_id).first();
                         if (modelEl && modelEl.type && modelEl.type.indexOf("-relationship") >= 0) {
@@ -572,7 +572,7 @@
                 }
 
                 case "remove_property": {
-                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors, declaredViewRefIds);
                     break;
                 }
 
@@ -590,12 +590,12 @@
                     // Resolve view_id from view ref_ids or model
                     _semanticResolveViewId(action.view_id, prefix, declaredViewRefIds, errors);
                     // Resolve element_id from element ref_ids or model
-                    _semanticResolveId(action.element_id, prefix + "element: ", scope, declaredRefIds, deletedIds, errors);
+                    _semanticResolveId(action.element_id, prefix + "element: ", scope, declaredRefIds, deletedIds, errors, declaredViewRefIds);
                     break;
                 }
 
                 case "move_to_folder": {
-                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors);
+                    _semanticResolveId(action.element_id, prefix, scope, declaredRefIds, deletedIds, errors, declaredViewRefIds);
                     // Warn if folder path likely doesn't exist (can't fully validate without model traversal)
                     if (action.folder_path && action.folder_path.indexOf("/") === -1) {
                         // Single-segment path is fine — it's a top-level folder
@@ -612,7 +612,7 @@
      * Resolve an element ID — either from model, from a ref_id, or report error.
      * Returns { type: string } or null.
      */
-    function _semanticResolveId(elementId, prefix, scope, declaredRefIds, deletedIds, errors) {
+    function _semanticResolveId(elementId, prefix, scope, declaredRefIds, deletedIds, errors, declaredViewRefIds) {
         // Check if referencing a deleted element
         if (deletedIds && deletedIds[elementId]) {
             errors.push(prefix + 'element "' + elementId + '" was deleted by a prior action');
@@ -622,6 +622,11 @@
         // Check if it's a ref_id from a prior create_element
         if (declaredRefIds[elementId]) {
             return { type: declaredRefIds[elementId].type };
+        }
+
+        // Check if it's a ref_id from a prior create_view (views have names, docs, properties too)
+        if (declaredViewRefIds && declaredViewRefIds[elementId]) {
+            return { type: "archimate-diagram-model" };
         }
 
         // Check model

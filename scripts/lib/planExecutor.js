@@ -42,11 +42,15 @@
     // ── Element resolution ───────────────────────────────────────────────
 
     /**
-     * Resolve an element by ID, checking the ref_id map first for newly created elements.
+     * Resolve an element by ID, checking the ref_id map first for newly created elements,
+     * then the view ref_id map (views can be targets for rename, set_property, etc.).
      */
-    function _resolveElement(id, refIdMap) {
+    function _resolveElement(id, refIdMap, viewRefIdMap) {
         if (refIdMap && refIdMap[id]) {
             return refIdMap[id];
+        }
+        if (viewRefIdMap && viewRefIdMap[id]) {
+            return viewRefIdMap[id];
         }
         return $("#" + id).first();
     }
@@ -109,18 +113,18 @@
                 return 'Create ' + action.type + ' "' + action.name + '"' + refNote;
             }
             case "rename_element": {
-                var el = _resolveElement(action.element_id, refIdMap);
+                var el = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 var oldName = el ? el.name : "(ref: " + action.element_id + ")";
                 return 'Rename "' + oldName + '" \u2192 "' + action.new_name + '"';
             }
             case "set_property": {
-                var el2 = _resolveElement(action.element_id, refIdMap);
+                var el2 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 var elName = el2 ? el2.name : "(ref: " + action.element_id + ")";
                 return 'Set property "' + action.key + '" = "' + action.value + '" on "' + elName + '"';
             }
             case "create_relationship": {
-                var src = _resolveElement(action.source_id, refIdMap);
-                var tgt = _resolveElement(action.target_id, refIdMap);
+                var src = _resolveElement(action.source_id, refIdMap, viewRefIdMap);
+                var tgt = _resolveElement(action.target_id, refIdMap, viewRefIdMap);
                 var srcName = src ? src.name : "(ref: " + action.source_id + ")";
                 var tgtName = tgt ? tgt.name : "(ref: " + action.target_id + ")";
                 var relName = (action.name && action.name !== null) ? ' "' + action.name + '"' : "";
@@ -128,7 +132,7 @@
                     ': "' + srcName + '" \u2192 "' + tgtName + '"';
             }
             case "set_documentation": {
-                var el3 = _resolveElement(action.element_id, refIdMap);
+                var el3 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 var elName3 = el3 ? el3.name : "(ref: " + action.element_id + ")";
                 var docPreview = action.documentation.length > 60
                     ? action.documentation.substring(0, 57) + "..."
@@ -136,7 +140,7 @@
                 return 'Set documentation on "' + elName3 + '": "' + docPreview + '"';
             }
             case "delete_element": {
-                var el4 = _resolveElement(action.element_id, refIdMap);
+                var el4 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 var elName4 = el4 ? el4.name : action.element_id;
                 return 'Delete element "' + elName4 + '" (cascades relationships)';
             }
@@ -150,7 +154,7 @@
                 return 'Delete relationship ' + action.relationship_id;
             }
             case "remove_property": {
-                var el5 = _resolveElement(action.element_id, refIdMap);
+                var el5 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 var elName5 = el5 ? el5.name : "(ref: " + action.element_id + ")";
                 return 'Remove property "' + action.key + '" from "' + elName5 + '"';
             }
@@ -161,7 +165,7 @@
             case "add_to_view": {
                 var view = _resolveView(action.view_id, viewRefIdMap);
                 var viewName = view ? view.name : "(ref: " + action.view_id + ")";
-                var addEl = _resolveElement(action.element_id, refIdMap);
+                var addEl = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 var addElName = addEl ? addEl.name : "(ref: " + action.element_id + ")";
                 var coords = "";
                 if (action.x !== null && action.x !== undefined && action.y !== null && action.y !== undefined) {
@@ -172,7 +176,7 @@
                 return 'Add "' + addElName + '" to view "' + viewName + '"' + coords;
             }
             case "move_to_folder": {
-                var el6 = _resolveElement(action.element_id, refIdMap);
+                var el6 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 var elName6 = el6 ? el6.name : "(ref: " + action.element_id + ")";
                 return 'Move "' + elName6 + '" to folder "' + action.folder_path + '"';
             }
@@ -203,7 +207,7 @@
                 break;
             }
             case "rename_element": {
-                var el = _resolveElement(action.element_id, refIdMap);
+                var el = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 if (!el) {
                     result.ok = false;
                     result.error = 'Element "' + action.element_id + '" not found';
@@ -217,7 +221,7 @@
                 break;
             }
             case "set_property": {
-                var el2 = _resolveElement(action.element_id, refIdMap);
+                var el2 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 if (!el2) {
                     result.ok = false;
                     result.error = 'Element "' + action.element_id + '" not found';
@@ -231,8 +235,8 @@
                 break;
             }
             case "create_relationship": {
-                var source = _resolveElement(action.source_id, refIdMap);
-                var target = _resolveElement(action.target_id, refIdMap);
+                var source = _resolveElement(action.source_id, refIdMap, viewRefIdMap);
+                var target = _resolveElement(action.target_id, refIdMap, viewRefIdMap);
                 if (!source) {
                     result.ok = false;
                     result.error = 'Source element "' + action.source_id + '" not found';
@@ -256,7 +260,7 @@
                 break;
             }
             case "set_documentation": {
-                var el3 = _resolveElement(action.element_id, refIdMap);
+                var el3 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 if (!el3) {
                     result.ok = false;
                     result.error = 'Element "' + action.element_id + '" not found';
@@ -267,7 +271,7 @@
                 break;
             }
             case "delete_element": {
-                var el4 = _resolveElement(action.element_id, refIdMap);
+                var el4 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 if (!el4) {
                     result.ok = false;
                     result.error = 'Element "' + action.element_id + '" not found';
@@ -296,7 +300,7 @@
                 break;
             }
             case "remove_property": {
-                var el5 = _resolveElement(action.element_id, refIdMap);
+                var el5 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 if (!el5) {
                     result.ok = false;
                     result.error = 'Element "' + action.element_id + '" not found';
@@ -323,7 +327,7 @@
                     result.error = 'View "' + action.view_id + '" not found';
                     return;
                 }
-                var addEl = _resolveElement(action.element_id, refIdMap);
+                var addEl = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 if (!addEl) {
                     result.ok = false;
                     result.error = 'Element "' + action.element_id + '" not found';
@@ -363,7 +367,7 @@
                 break;
             }
             case "move_to_folder": {
-                var el6 = _resolveElement(action.element_id, refIdMap);
+                var el6 = _resolveElement(action.element_id, refIdMap, viewRefIdMap);
                 if (!el6) {
                     result.ok = false;
                     result.error = 'Element "' + action.element_id + '" not found';

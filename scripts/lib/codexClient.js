@@ -1042,7 +1042,7 @@
             "11. Do not wrap the JSON in markdown code fences.\n" +
             "12. Order actions: create_element/create_view before any action that references their ref_id. " +
                 "Place delete actions last.\n" +
-            "13. element_id accepts element IDs, relationship IDs, OR ref_ids for: " +
+            "13. element_id accepts element IDs, relationship IDs, element ref_ids, OR view ref_ids for: " +
                 "set_documentation, set_property, rename_element, remove_property, move_to_folder.\n" +
             "14. delete_element cascades — it automatically removes all attached relationships.\n" +
             "15. add_to_view coordinates (x, y, width, height) are optional — omit them for auto-grid layout.\n" +

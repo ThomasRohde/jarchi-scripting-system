@@ -205,7 +205,6 @@
                     // Populate tree
                     // =====================================================
                     buildTreeItems(w.tree, treeRoot);
-                    expandAll(w.tree);
                     clearDetails();
 
                     // =====================================================
@@ -220,7 +219,6 @@
                             isSearchMode = false;
                             w.tree.removeAll();
                             buildTreeItems(w.tree, treeRoot);
-                            expandAll(w.tree);
                             selectedDescriptor = null;
                             clearDetails();
                             updateButtons();
