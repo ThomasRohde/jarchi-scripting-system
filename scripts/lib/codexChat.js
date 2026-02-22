@@ -318,9 +318,12 @@
         function browserAddMessage(role, text) {
             var msg = createMessage(role, text);
             var bodyHtml;
-            if (role === "assistant") {
+            if (role === "assistant" || role === "plan" || role === "error") {
                 var jsonHtml = tryFormatJson(text);
                 bodyHtml = jsonHtml || renderMarkdown(text);
+            } else if (role === "system" && text.indexOf("**") >= 0) {
+                // System messages with markdown formatting
+                bodyHtml = '<div style="font-style:normal;">' + renderMarkdown(text) + '</div>';
             } else {
                 bodyHtml = htmlEscape(text).replace(/\n/g, "<br>");
             }
@@ -667,8 +670,9 @@
 
                 var planResult = codexClient.askPlan(state.threadId, args, {
                     context: context,
-                    onDelta: function (delta) {
-                        appendRaw(delta);
+                    timeout: 600000, // 10 minutes for plan generation
+                    onDelta: function () {
+                        // Don't show raw JSON deltas — keep the thinking animation
                     },
                     onPoll: function () {
                         if (state.cancelled) throw new Error("Cancelled");
@@ -697,45 +701,55 @@
                 }
 
                 var plan = planResult.plan;
-                appendChat("[Plan]", "Status: " + plan.status);
-                appendChat("[Plan]", "Summary: " + plan.summary);
+
+                // ── Build consolidated plan message ─────────────────
+                var md = "**Status:** " + plan.status + "\n\n";
+                md += "**Summary:** " + plan.summary + "\n";
 
                 if (plan.status === "needs_clarification") {
                     var questions = plan.questions || [];
-                    for (var q = 0; q < questions.length; q++) {
-                        appendChat("[Plan]", "  ? " + questions[q]);
+                    if (questions.length > 0) {
+                        md += "\n**Questions:**\n";
+                        for (var q = 0; q < questions.length; q++) {
+                            md += "- " + questions[q] + "\n";
+                        }
                     }
+                    appendChat("[Plan]", md);
                     state.busy = false;
                     updateUI();
                     return;
                 }
 
                 if (plan.status === "refusal") {
+                    appendChat("[Plan]", md);
                     state.busy = false;
                     updateUI();
                     return;
                 }
 
                 if (planResult.validation && planResult.validation.warnings.length > 0) {
+                    md += "\n**Warnings:**\n";
                     for (var vw = 0; vw < planResult.validation.warnings.length; vw++) {
-                        appendChat("[Plan]", "Warning: " + planResult.validation.warnings[vw]);
+                        md += "- " + planResult.validation.warnings[vw] + "\n";
                     }
                 }
 
                 if (!planResult.ok) {
-                    appendChat("[Error]", "Validation failed: " + planResult.error);
+                    md += "\n**Validation failed:** " + planResult.error;
+                    appendChat("[Error]", md);
                     state.busy = false;
                     updateUI();
                     return;
                 }
 
                 var preview = planExecutor.execute(plan, { preview: true });
-                appendChat("[Plan]", plan.actions.length + " action(s):");
+                md += "\n**" + plan.actions.length + " action(s):**\n";
                 for (var p = 0; p < preview.results.length; p++) {
-                    appendChat("[Plan]", "  " + (p + 1) + ". " + preview.results[p].preview);
+                    md += (p + 1) + ". " + preview.results[p].preview + "\n";
                 }
-                appendChat("[System]", "Plan ready. Type /apply to execute, or continue chatting.");
+                md += "\n*Type `/apply` to execute, or continue chatting.*";
 
+                appendChat("[Plan]", md);
                 state.lastPlan = plan;
             } catch (e) {
                 if (useBrowser) browserFinalizeStreaming();
@@ -765,23 +779,39 @@
             try {
                 var result = planExecutor.execute(state.lastPlan, { preview: false });
 
+                var md = "";
+                var okCount = 0, failCount = 0, skipCount = 0;
+                var failLines = [];
+
                 for (var r = 0; r < result.results.length; r++) {
                     var res = result.results[r];
                     if (res.ok) {
-                        appendChat("[System]", "  [OK] " + (r + 1) + ". " + res.op);
+                        okCount++;
                     } else if (res.skipped) {
-                        appendChat("[System]", "  [SKIP] " + (r + 1) + ". " + res.op);
+                        skipCount++;
                     } else {
-                        appendChat("[Error]", "  [FAIL] " + (r + 1) + ". " + res.op + " \u2014 " + res.error);
+                        failCount++;
+                        failLines.push((r + 1) + ". **" + res.op + "** \u2014 " + res.error);
                     }
                 }
 
                 if (result.ok) {
-                    appendChat("[System]", "Done. Applied " + result.applied + " action(s).");
+                    md = "**Applied " + result.applied + " action(s) successfully.**";
+                    if (result.autoConnected > 0) {
+                        md += "\n\nAuto-connected " + result.autoConnected + " relationship(s) on view.";
+                    }
                 } else {
-                    appendChat("[System]", "Completed with errors. Applied: " + result.applied +
-                        ", Failed: " + result.failed + ", Skipped: " + result.skipped);
+                    md = "**Completed with errors.** Applied: " + okCount +
+                        ", Failed: " + failCount + ", Skipped: " + skipCount;
+                    if (failLines.length > 0) {
+                        md += "\n\n**Failures:**\n";
+                        for (var fl = 0; fl < failLines.length; fl++) {
+                            md += failLines[fl] + "\n";
+                        }
+                    }
                 }
+
+                appendChat("[System]", md);
             } catch (e) {
                 appendChat("[Error]", "Apply failed: " + e.message);
             }

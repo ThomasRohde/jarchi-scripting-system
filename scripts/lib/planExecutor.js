@@ -503,6 +503,14 @@
                 }
 
                 if (preview) {
+                    // Track ref_ids with placeholder objects so later actions
+                    // can resolve human-readable names in preview descriptions
+                    if (action.op === "create_element" && action.ref_id) {
+                        refIdMap[action.ref_id] = { name: action.name, id: action.ref_id, type: action.type };
+                    }
+                    if (action.op === "create_view" && action.ref_id) {
+                        viewRefIdMap[action.ref_id] = { name: action.name, id: action.ref_id };
+                    }
                     result.ok = true;
                     result.preview = _describeAction(action, refIdMap, viewRefIdMap);
                     output.applied++;
