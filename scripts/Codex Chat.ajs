@@ -18,6 +18,7 @@ load(__DIR__ + "lib/relationshipMatrix.js");
 load(__DIR__ + "lib/planValidator.js");
 load(__DIR__ + "lib/planExecutor.js");
 load(__DIR__ + "lib/codexClient.js");
+load(__DIR__ + "vendor/marked/marked-sync.js");
 load(__DIR__ + "lib/codexChat.js");
 
 (function () {
