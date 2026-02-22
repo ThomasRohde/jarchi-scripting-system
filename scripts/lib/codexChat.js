@@ -968,23 +968,32 @@
                     GridLayoutFactory.fillDefaults().numColumns(2).spacing(5, 0).applyTo(inputArea);
                     GridDataFactory.fillDefaults().grab(true, false).applyTo(inputArea);
 
-                    w.inputField = new Text(inputArea, SWT.SINGLE | SWT.BORDER);
-                    GridDataFactory.fillDefaults().grab(true, false).align(SWT.FILL, SWT.CENTER).applyTo(w.inputField);
+                    w.inputField = new Text(inputArea, SWT.MULTI | SWT.BORDER | SWT.WRAP | SWT.V_SCROLL);
+                    var inputGd = new GridData(SWT.FILL, SWT.FILL, true, false);
+                    inputGd.heightHint = w.inputField.getLineHeight() * 3;
+                    w.inputField.setLayoutData(inputGd);
                     w.inputField.setMessage("Type a message or /help for commands...");
                     w.inputField.setEnabled(false);
 
-                    w.inputField.addListener(SWT.Traverse, function (e) {
-                        if (e.detail === SWT.TRAVERSE_RETURN) {
+                    w.inputField.addListener(SWT.KeyDown, function (e) {
+                        var kc = Number(e.keyCode);
+                        var sm = Number(e.stateMask);
+                        var ch = Number(e.character);
+                        // Debug: log every Enter-related key press
+                        if (kc === 13 || kc === 10 || ch === 13 || ch === 10) {
+                            console.log("KeyDown: keyCode=" + kc + " char=" + ch +
+                                " stateMask=" + sm + " SWT.CR=" + Number(SWT.CR) +
+                                " SWT.CTRL=" + Number(SWT.CTRL));
+                        }
+                        if ((kc === 13 || kc === Number(SWT.KEYPAD_CR)) && (sm & Number(SWT.CTRL)) !== 0) {
                             e.doit = false;
-                            e.detail = SWT.TRAVERSE_NONE;
-                            doSend();
+                            display.asyncExec(function () { doSend(); });
                         }
                     });
 
                     w.sendButton = new Button(inputArea, SWT.PUSH);
-                    w.sendButton.setText("Send");
-                    var sendGd = new GridData(SWT.CENTER, SWT.CENTER, false, false);
-                    sendGd.widthHint = 70;
+                    w.sendButton.setText("Send (Ctrl+\u21B5)");
+                    var sendGd = new GridData(SWT.CENTER, SWT.TOP, false, false);
                     w.sendButton.setLayoutData(sendGd);
                     w.sendButton.setEnabled(false);
                     w.sendButton.addListener(SWT.Selection, function () {
