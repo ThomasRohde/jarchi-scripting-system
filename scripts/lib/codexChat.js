@@ -100,7 +100,9 @@
             modelsTable: null,
             statusLabel: null,
             urlLabel: null,
-            threadLabel: null
+            threadLabel: null,
+            modelLabel: null,
+            effortLabel: null
         };
 
         // ── Message data model ───────────────────────────────────────────
@@ -521,6 +523,10 @@
 
                 var cfg = raw.config || raw;
 
+                // Override with session-local model/effort if set
+                if (state.currentModel) cfg.model = state.currentModel;
+                if (state.currentEffort) cfg.model_reasoning_effort = state.currentEffort;
+
                 // helper: add a child row only if value is non-null
                 function addRow(parent, label, value) {
                     if (value == null) return;
@@ -602,6 +608,19 @@
 
                 if (w.urlLabel && !w.urlLabel.isDisposed()) {
                     w.urlLabel.setText("ws://127.0.0.1:19000");
+                }
+                // Set initial model/effort from server config
+                if (!state.currentModel && cfg.model) {
+                    state.currentModel = cfg.model;
+                    if (w.modelLabel && !w.modelLabel.isDisposed()) {
+                        w.modelLabel.setText(String(cfg.model));
+                    }
+                }
+                if (!state.currentEffort && cfg.model_reasoning_effort) {
+                    state.currentEffort = cfg.model_reasoning_effort;
+                    if (w.effortLabel && !w.effortLabel.isDisposed()) {
+                        w.effortLabel.setText(String(cfg.model_reasoning_effort));
+                    }
                 }
             } catch (e) {
                 if (w.configTree && !w.configTree.isDisposed()) {
@@ -1193,6 +1212,14 @@
                 if (w.threadLabel && !w.threadLabel.isDisposed()) {
                     w.threadLabel.setText(thread.id);
                 }
+                if (w.modelLabel && !w.modelLabel.isDisposed()) {
+                    w.modelLabel.setText(displayName);
+                }
+                if (w.effortLabel && !w.effortLabel.isDisposed()) {
+                    w.effortLabel.setText(effort || "\u2014");
+                }
+                populateConfigTab();
+                populateModelsTab();
             } catch (e) {
                 appendChat("[Error]", "Failed to switch model: " + e.message);
             }
@@ -1626,6 +1653,16 @@
                     w.threadLabel = new Label(connGroup, SWT.NONE);
                     w.threadLabel.setText("\u2014");
                     GridDataFactory.fillDefaults().grab(true, false).applyTo(w.threadLabel);
+
+                    new Label(connGroup, SWT.NONE).setText("Model:");
+                    w.modelLabel = new Label(connGroup, SWT.NONE);
+                    w.modelLabel.setText("\u2014");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.modelLabel);
+
+                    new Label(connGroup, SWT.NONE).setText("Reasoning Effort:");
+                    w.effortLabel = new Label(connGroup, SWT.NONE);
+                    w.effortLabel.setText("\u2014");
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(w.effortLabel);
 
                     var serverGroup = new Group(configComposite, SWT.NONE);
                     serverGroup.setText("Server Configuration");
