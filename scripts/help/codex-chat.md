@@ -17,6 +17,7 @@ The main conversation area. Type messages and see streaming responses from Codex
 - **Enter** inserts a newline (multi-line input)
 - Type `/` to see an autocomplete popup of available commands
 - **Arrow Up/Down** navigates the autocomplete popup, **Enter** selects, **Esc** dismisses
+- When the autocomplete narrows to a single no-argument command (e.g. `/apply`, `/clear`), **Enter** executes it immediately — no need to press Ctrl+Enter
 
 On the first message, the script automatically sends your model context (elements and relationships) so Codex understands what you're working with.
 

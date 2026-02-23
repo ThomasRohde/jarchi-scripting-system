@@ -1420,12 +1420,17 @@
             var cmdText = String(item.getText(0));
             // Extract just the command name (before any space for args placeholder)
             var spacePos = cmdText.indexOf(" ");
-            var insertText = spacePos >= 0 ? cmdText.substring(0, spacePos) + " " : cmdText;
+            var hasArgs = spacePos >= 0;
+            var insertText = hasArgs ? cmdText.substring(0, spacePos) + " " : cmdText;
+            var autoSend = !hasArgs && popupTable.getItemCount() === 1;
             hidePopup();
             if (w.inputField && !w.inputField.isDisposed()) {
                 w.inputField.setText(insertText);
                 w.inputField.setSelection(insertText.length);
                 w.inputField.setFocus();
+                if (autoSend) {
+                    display.asyncExec(function () { doSend(); });
+                }
             }
         }
 
