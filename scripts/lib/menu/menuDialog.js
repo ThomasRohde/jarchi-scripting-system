@@ -96,6 +96,10 @@
                     return true;
                 },
 
+                getShellStyle: function () {
+                    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
+                },
+
                 createDialogArea: function (parent) {
                     var area = Java.super(myDialog.dialog).createDialogArea(parent);
 

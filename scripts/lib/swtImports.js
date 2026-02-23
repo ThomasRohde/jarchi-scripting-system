@@ -183,6 +183,12 @@
     const TreeItem = Java.type("org.eclipse.swt.widgets.TreeItem");
 
     /**
+     * TreeColumn widget - column in a Tree
+     * @type {JavaClass}
+     */
+    const TreeColumn = Java.type("org.eclipse.swt.widgets.TreeColumn");
+
+    /**
      * Browser widget - embedded web browser
      * @type {JavaClass}
      */
@@ -426,6 +432,7 @@
         TableColumn,
         Tree,
         TreeItem,
+        TreeColumn,
         Browser,
 
         // Tabs and Containers

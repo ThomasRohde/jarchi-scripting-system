@@ -38,6 +38,9 @@
     var Table = swt.Table;
     var TableItem = swt.TableItem;
     var TableColumn = swt.TableColumn;
+    var Tree = swt.Tree;
+    var TreeItem = swt.TreeItem;
+    var TreeColumn = swt.TreeColumn;
     var TabFolder = swt.TabFolder;
     var TabItem = swt.TabItem;
     var Display = swt.Display;
@@ -91,7 +94,7 @@
             sendButton: null,
             connectBtn: null,
             disconnectBtn: null,
-            configText: null,
+            configTree: null,
             modelsTable: null,
             statusLabel: null,
             urlLabel: null,
@@ -509,16 +512,100 @@
 
         function populateConfigTab() {
             try {
-                var config = codexClient.readConfig();
-                if (w.configText && !w.configText.isDisposed()) {
-                    w.configText.setText(JSON.stringify(config, null, 2));
+                var raw = codexClient.readConfig();
+                if (!w.configTree || w.configTree.isDisposed()) return;
+                w.configTree.removeAll();
+
+                var cfg = raw.config || raw;
+
+                // helper: add a child row only if value is non-null
+                function addRow(parent, label, value) {
+                    if (value == null) return;
+                    var item = new TreeItem(parent, SWT.NONE);
+                    item.setText(0, label);
+                    item.setText(1, String(value));
                 }
+
+                // ── Model Settings ───────────────────────────────────
+                var modelNode = new TreeItem(w.configTree, SWT.NONE);
+                modelNode.setText(0, "Model Settings");
+
+                var pairs = [
+                    ["Model", cfg.model],
+                    ["Review Model", cfg.review_model],
+                    ["Reasoning Effort", cfg.model_reasoning_effort],
+                    ["Reasoning Summary", cfg.model_reasoning_summary],
+                    ["Verbosity", cfg.model_verbosity],
+                    ["Context Window", cfg.model_context_window],
+                    ["Auto-compact Limit", cfg.model_auto_compact_token_limit],
+                    ["Personality", cfg.personality],
+                    ["Approval Policy", cfg.approval_policy],
+                    ["Sandbox Mode", cfg.sandbox_mode],
+                    ["Web Search", cfg.web_search]
+                ];
+                for (var i = 0; i < pairs.length; i++) {
+                    addRow(modelNode, pairs[i][0], pairs[i][1]);
+                }
+                modelNode.setExpanded(true);
+
+                // ── Profiles ─────────────────────────────────────────
+                if (cfg.profiles && typeof cfg.profiles === "object") {
+                    var profilesNode = new TreeItem(w.configTree, SWT.NONE);
+                    profilesNode.setText(0, "Profiles");
+                    var profileNames = Object.keys(cfg.profiles);
+                    for (var p = 0; p < profileNames.length; p++) {
+                        var pName = profileNames[p];
+                        var prof = cfg.profiles[pName];
+                        var profNode = new TreeItem(profilesNode, SWT.NONE);
+                        profNode.setText(0, pName);
+                        var profKeys = Object.keys(prof);
+                        for (var k = 0; k < profKeys.length; k++) {
+                            addRow(profNode, profKeys[k], prof[profKeys[k]]);
+                        }
+                        profNode.setExpanded(true);
+                    }
+                    profilesNode.setExpanded(true);
+                }
+
+                // ── MCP Servers ──────────────────────────────────────
+                if (cfg.mcp_servers && typeof cfg.mcp_servers === "object") {
+                    var mcpNode = new TreeItem(w.configTree, SWT.NONE);
+                    mcpNode.setText(0, "MCP Servers");
+                    var srvNames = Object.keys(cfg.mcp_servers);
+                    for (var s = 0; s < srvNames.length; s++) {
+                        var sName = srvNames[s];
+                        var srv = cfg.mcp_servers[sName];
+                        var srvNode = new TreeItem(mcpNode, SWT.NONE);
+                        srvNode.setText(0, sName);
+                        addRow(srvNode, "Command", srv.command);
+                        if (Array.isArray(srv.args) && srv.args.length > 0) {
+                            addRow(srvNode, "Args", srv.args.join(" "));
+                        }
+                        srvNode.setExpanded(true);
+                    }
+                    mcpNode.setExpanded(true);
+                }
+
+                // ── Features ─────────────────────────────────────────
+                if (cfg.features && typeof cfg.features === "object") {
+                    var featNode = new TreeItem(w.configTree, SWT.NONE);
+                    featNode.setText(0, "Features");
+                    var featKeys = Object.keys(cfg.features);
+                    for (var f = 0; f < featKeys.length; f++) {
+                        addRow(featNode, featKeys[f], cfg.features[featKeys[f]]);
+                    }
+                    featNode.setExpanded(true);
+                }
+
                 if (w.urlLabel && !w.urlLabel.isDisposed()) {
                     w.urlLabel.setText("ws://127.0.0.1:19000");
                 }
             } catch (e) {
-                if (w.configText && !w.configText.isDisposed()) {
-                    w.configText.setText("Failed to load configuration: " + e.message);
+                if (w.configTree && !w.configTree.isDisposed()) {
+                    w.configTree.removeAll();
+                    var errItem = new TreeItem(w.configTree, SWT.NONE);
+                    errItem.setText(0, "Error");
+                    errItem.setText(1, "Failed to load: " + e.message);
                 }
             }
         }
@@ -536,7 +623,13 @@
                         var m = models[i];
                         var item = new TableItem(w.modelsTable, SWT.NONE);
                         item.setText(0, String(m.id || m.model || "unknown"));
-                        item.setText(1, String(m.reasoning_effort || m.reasoningEffort || "\u2014"));
+                        item.setText(1, String(m.displayName || "\u2014"));
+                        item.setText(2, String(m.defaultReasoningEffort || m.reasoning_effort || "\u2014"));
+                        var modalities = Array.isArray(m.inputModalities)
+                            ? m.inputModalities.join(", ") : "\u2014";
+                        item.setText(3, modalities);
+                        item.setText(4, m.isDefault ? "Yes" : "");
+                        item.setText(5, String(m.upgrade || "\u2014"));
                     }
                 }
             } catch (e) {
@@ -1340,10 +1433,19 @@
                     GridLayoutFactory.fillDefaults().margins(10, 10).applyTo(serverGroup);
                     GridDataFactory.fillDefaults().grab(true, true).applyTo(serverGroup);
 
-                    w.configText = new Text(serverGroup,
-                        SWT.READ_ONLY | SWT.MULTI | SWT.V_SCROLL | SWT.H_SCROLL | SWT.BORDER);
-                    GridDataFactory.fillDefaults().grab(true, true).applyTo(w.configText);
-                    w.configText.setText("(Not connected)");
+                    w.configTree = new Tree(serverGroup,
+                        SWT.BORDER | SWT.FULL_SELECTION | SWT.V_SCROLL | SWT.H_SCROLL);
+                    w.configTree.setHeaderVisible(true);
+                    w.configTree.setLinesVisible(true);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(w.configTree);
+
+                    var cfgCol1 = new TreeColumn(w.configTree, SWT.NONE);
+                    cfgCol1.setText("Setting");
+                    cfgCol1.setWidth(250);
+
+                    var cfgCol2 = new TreeColumn(w.configTree, SWT.NONE);
+                    cfgCol2.setText("Value");
+                    cfgCol2.setWidth(350);
 
                     // ── Models tab ────────────────────────────────────────
                     var modelsTab = new TabItem(tabFolder, SWT.NONE);
@@ -1359,13 +1461,29 @@
                     w.modelsTable.setLinesVisible(true);
                     GridDataFactory.fillDefaults().grab(true, true).applyTo(w.modelsTable);
 
-                    var col1 = new TableColumn(w.modelsTable, SWT.NONE);
-                    col1.setText("Model ID");
-                    col1.setWidth(400);
+                    var colId = new TableColumn(w.modelsTable, SWT.NONE);
+                    colId.setText("Model ID");
+                    colId.setWidth(180);
 
-                    var col2 = new TableColumn(w.modelsTable, SWT.NONE);
-                    col2.setText("Reasoning Effort");
-                    col2.setWidth(150);
+                    var colName = new TableColumn(w.modelsTable, SWT.NONE);
+                    colName.setText("Display Name");
+                    colName.setWidth(160);
+
+                    var colEffort = new TableColumn(w.modelsTable, SWT.NONE);
+                    colEffort.setText("Default Effort");
+                    colEffort.setWidth(100);
+
+                    var colModalities = new TableColumn(w.modelsTable, SWT.NONE);
+                    colModalities.setText("Modalities");
+                    colModalities.setWidth(100);
+
+                    var colDefault = new TableColumn(w.modelsTable, SWT.NONE);
+                    colDefault.setText("Default");
+                    colDefault.setWidth(60);
+
+                    var colUpgrade = new TableColumn(w.modelsTable, SWT.NONE);
+                    colUpgrade.setText("Upgrade");
+                    colUpgrade.setWidth(180);
 
                     return area;
                 },
