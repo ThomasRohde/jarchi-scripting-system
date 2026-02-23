@@ -414,6 +414,9 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
                 diagObj.fillColor = options.depthColors[colorIdx];
             }
 
+            // Show icon setting
+            diagObj.showIcon = options.showIcon;
+
             // Center text on leaves; top-align on parents so label doesn't overlap children
             diagObj.textAlignment = 2; // CENTER
             if (!node._effectiveLeaf) {

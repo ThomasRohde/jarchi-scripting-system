@@ -49,6 +49,7 @@
         leafHeight: 45,
         gap: 8,
         padding: 12,
+        showIcon: 0,            // 0 = IF_NO_IMAGE, 1 = ALWAYS, 2 = NEVER
         leafColor: "#E8E8E8",
         depthColors: [
             "#D6E4F0", // Level 0: light blue
@@ -63,6 +64,12 @@
     var SORT_MODES = [
         { id: "subtrees", label: "Subtrees first, then alphabetical" },
         { id: "alphabetical", label: "Alphabetical" }
+    ];
+
+    var SHOW_ICON_OPTIONS = [
+        { id: 0, label: "If no image" },
+        { id: 1, label: "Always" },
+        { id: 2, label: "Never" }
     ];
 
     // =========================================================================
@@ -196,7 +203,7 @@
                 configureShell: function (newShell) {
                     Java.super(myDialog.dialog).configureShell(newShell);
                     newShell.setText("Build Capability Map");
-                    newShell.setMinimumSize(650, 400);
+                    newShell.setMinimumSize(750, 400);
                 },
 
                 isResizable: function () {
@@ -289,6 +296,14 @@
                     w.gap = createLabeledSpinner(spacingGroup, "Element gap (px):", 2, 40, DEFAULTS.gap, 2);
                     w.padding = createLabeledSpinner(spacingGroup, "Container padding (px):", 4, 40, DEFAULTS.padding, 2);
 
+                    // === Display ===
+                    var displayGroup = new Group(rightCol, SWT.NONE);
+                    displayGroup.setText("Display");
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 8).spacing(8, 6).applyTo(displayGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(displayGroup);
+
+                    w.showIconCombo = createLabeledCombo(displayGroup, "Show icon:", SHOW_ICON_OPTIONS, DEFAULTS.showIcon);
+
                     return area;
                 },
 
@@ -299,10 +314,10 @@
 
                 getInitialSize: function () {
                     var Point = swt.Point;
-                    // Height driven by color rows in left column
+                    // Height: title area (~100) + General group (~110) + Colors group (header + rows) + button bar (~60) + margins
                     var colorRowCount = maxDepth + 2; // levels + leaf
-                    var estimatedHeight = 330 + colorRowCount * 32;
-                    return new Point(650, estimatedHeight);
+                    var estimatedHeight = 500 + colorRowCount * 45;
+                    return new Point(750, estimatedHeight);
                 },
 
                 okPressed: function () {
@@ -348,6 +363,7 @@
             leafHeight: w.leafHeight.getSelection(),
             gap: w.gap.getSelection(),
             padding: w.padding.getSelection(),
+            showIcon: SHOW_ICON_OPTIONS[w.showIconCombo.getSelectionIndex() >= 0 ? w.showIconCombo.getSelectionIndex() : 0].id,
             leafColor: w.leafColorRow.hex,
             depthColors: depthColors
         };
