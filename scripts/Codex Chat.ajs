@@ -1,11 +1,12 @@
 /**
  * @name Codex Chat
  * @description Multi-turn chat dialog for conversing with Codex about the ArchiMate model.
- *   Supports streaming responses, slash commands (/plan, /apply, /clear), and server
- *   configuration inspection. Requires `codex app-server --listen ws://127.0.0.1:19000` running.
- * @version 1.0.0
+ *   Supports streaming responses, slash commands (/plan, /apply, /clear, /context, /model,
+ *   /status, /help), model/effort switching, and server configuration inspection via tabs.
+ *   Requires `codex app-server --listen ws://127.0.0.1:19000` running.
+ * @version 2.0.0
  * @author Thomas Rohde
- * @lastModifiedDate 2026-02-22
+ * @lastModifiedDate 2026-02-23
  */
 
 console.clear();

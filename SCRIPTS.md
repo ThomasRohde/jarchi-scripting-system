@@ -87,4 +87,4 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 
 | Script | Description |
 |--------|-------------|
-| **Codex Chat** | Multi-turn chat dialog for conversing with Codex about the ArchiMate model. Supports streaming responses, slash commands (`/plan`, `/apply`, `/clear`, `/context`, `/status`), and server configuration inspection via tabs. Requires `codex app-server --listen ws://127.0.0.1:19000` running. |
+| **Codex Chat** | Multi-turn chat dialog for conversing with Codex about the ArchiMate model. Supports streaming responses, slash commands (`/plan`, `/apply`, `/clear`, `/context`, `/model`, `/status`, `/help`), model/effort switching, and server configuration inspection via tabs. Requires `codex app-server --listen ws://127.0.0.1:19000` running. |

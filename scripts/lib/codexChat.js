@@ -6,7 +6,7 @@
  * - Rich HTML chat display with markdown rendering (via Browser widget)
  * - Streaming responses with live text + cursor, finalized as formatted markdown/JSON
  * - Three tabs: Chat, Configuration, Models
- * - Slash commands: /plan, /apply, /clear, /context, /help, /status
+ * - Slash commands: /plan, /apply, /clear, /context, /model, /status, /help
  * - Plan integration via codexClient.askPlan() and planExecutor.execute()
  * - Dual-mode fallback: plain Text widget if Browser is unavailable
  *
