@@ -603,6 +603,7 @@
      *
      * @param {Object} [options]
      * @param {string} [options.model] - Model to use
+     * @param {string} [options.reasoningEffort] - Reasoning effort level
      * @param {string} [options.cwd] - Working directory
      * @param {string} [options.approvalPolicy] - "never", "unlessTrusted", etc.
      * @returns {Object} Thread object with id
@@ -611,6 +612,7 @@
         options = options || {};
         var params = {};
         if (options.model) params.model = options.model;
+        if (options.reasoningEffort) params.reasoningEffort = options.reasoningEffort;
         if (options.cwd) params.cwd = options.cwd;
         if (options.approvalPolicy) params.approvalPolicy = options.approvalPolicy;
 

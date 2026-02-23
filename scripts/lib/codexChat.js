@@ -83,7 +83,9 @@
             modelContextSent: false,
             lastPlan: null,
             busy: false,
-            cancelled: false
+            cancelled: false,
+            currentModel: null,
+            currentEffort: null
         };
 
         // ── Widget refs ──────────────────────────────────────────────────
@@ -468,6 +470,7 @@
                         "| `/apply` | Execute the last generated plan |\n" +
                         "| `/clear` | Start a new conversation thread |\n" +
                         "| `/context` | Show model context summary |\n" +
+                        "| `/model` | Switch the active model |\n" +
                         "| `/status` | Show connection and thread info |\n" +
                         "| `/help` | Show this help message |\n\n" +
                         "Model context is automatically included with your first message.";
@@ -1016,6 +1019,7 @@
                     "| `/apply` | Execute the last generated plan |\n" +
                     "| `/clear` | Start a new conversation thread |\n" +
                     "| `/context` | Show model context summary |\n" +
+                    "| `/model` | Switch the active model |\n" +
                     "| `/status` | Show connection and thread info |\n" +
                     "| `/help` | Show this help message |\n\n" +
                     "Type any text without `/` to chat with Codex about your model.";
@@ -1031,10 +1035,166 @@
                 appendChat("[System]", "  /apply               \u2014 Execute the last generated plan");
                 appendChat("[System]", "  /clear               \u2014 Start a new conversation thread");
                 appendChat("[System]", "  /context             \u2014 Show model context summary");
+                appendChat("[System]", "  /model               \u2014 Switch the active model");
                 appendChat("[System]", "  /status              \u2014 Show connection and thread info");
                 appendChat("[System]", "  /help                \u2014 Show this help message");
                 appendChat("[System]", "");
                 appendChat("[System]", "Type any text without / to chat with Codex about your model.");
+            }
+        }
+
+        function handleModel() {
+            appendChat("[You]", "/model");
+            if (!state.connected) {
+                appendChat("[Error]", "Not connected. Connect first.");
+                return;
+            }
+            try {
+                var result = codexClient.listModels();
+                var models = result.data || result.models || [];
+                if (!Array.isArray(models) || models.length === 0) {
+                    appendChat("[System]", "No models available.");
+                    return;
+                }
+                // Defer popup display so pending events (Modify, Deactivate) settle first
+                display.asyncExec(function () {
+                    showModelPicker(models);
+                });
+            } catch (e) {
+                appendChat("[Error]", "Failed to list models: " + e.message);
+            }
+        }
+
+        function positionAndShowPopup(rowCount) {
+            var cols = popupTable.getColumns();
+            cols[0].pack();
+            cols[1].pack();
+            cols[0].setWidth(cols[0].getWidth() + 16);
+            cols[1].setWidth(cols[1].getWidth() + 16);
+
+            var totalWidth = cols[0].getWidth() + cols[1].getWidth() + 4;
+            var rowHeight = popupTable.getItemHeight();
+            var totalHeight = Math.min(rowHeight * rowCount + 4, 200);
+
+            var inputLoc = w.inputField.toDisplay(0, 0);
+            var popupX = inputLoc.x;
+            var popupY = inputLoc.y - totalHeight;
+            if (popupY < 0) {
+                var inputSize = w.inputField.getSize();
+                popupY = inputLoc.y + inputSize.y;
+            }
+            var inputWidth = w.inputField.getSize().x;
+            if (totalWidth < inputWidth) totalWidth = inputWidth;
+
+            popupShell.setBounds(popupX, popupY, totalWidth, totalHeight);
+            if (!popupShell.isVisible()) {
+                popupShell.setVisible(true);
+            }
+        }
+
+        function showModelPicker(models) {
+            if (!popupShell || popupShell.isDisposed()) return;
+            if (!w.inputField || w.inputField.isDisposed()) return;
+
+            popupMode = "model";
+            popupModels = models;
+
+            popupTable.removeAll();
+            for (var i = 0; i < models.length; i++) {
+                var m = models[i];
+                var item = new TableItem(popupTable, SWT.NONE);
+                var label = m.displayName || m.id || m.model || "unknown";
+                if (m.isDefault) label += " (default)";
+                if (state.currentModel && (state.currentModel === m.id || state.currentModel === m.model)) {
+                    label += " \u2713";
+                }
+                item.setText(0, label);
+            }
+
+            popupTable.select(0);
+            positionAndShowPopup(models.length);
+        }
+
+        var EFFORT_LEVELS = [
+            { effort: "low",    description: "Lower latency, shorter responses" },
+            { effort: "medium", description: "Balanced reasoning depth and latency" },
+            { effort: "high",   description: "Deeper reasoning for complex problems" },
+            { effort: "xhigh",  description: "Maximum reasoning depth" }
+        ];
+
+        function showEffortPicker(selectedModel) {
+            if (!popupShell || popupShell.isDisposed()) return;
+            if (!w.inputField || w.inputField.isDisposed()) return;
+
+            popupSelectedModel = selectedModel;
+            var efforts = EFFORT_LEVELS;
+
+            popupMode = "effort";
+            popupEfforts = efforts;
+            var defaultEffort = selectedModel.defaultReasoningEffort || "medium";
+
+            popupTable.removeAll();
+            var selectIdx = 0;
+            for (var i = 0; i < efforts.length; i++) {
+                var e = efforts[i];
+                var item = new TableItem(popupTable, SWT.NONE);
+                var label = String(e.effort);
+                if (label === defaultEffort) {
+                    label += " (default)";
+                    selectIdx = i;
+                }
+                item.setText(0, label);
+                item.setText(1, e.description);
+            }
+
+            popupTable.select(selectIdx);
+            positionAndShowPopup(efforts.length);
+        }
+
+        function confirmModelSelection() {
+            var idx = popupTable.getSelectionIndex();
+            if (idx < 0 || !popupModels || idx >= popupModels.length) return;
+            var selected = popupModels[idx];
+            // Don't hidePopup — transition to effort picker
+            popupShell.setVisible(false);
+            display.asyncExec(function () {
+                showEffortPicker(selected);
+            });
+        }
+
+        function confirmEffortSelection() {
+            var idx = popupTable.getSelectionIndex();
+            if (idx < 0 || !popupEfforts || idx >= popupEfforts.length) return;
+            var e = popupEfforts[idx];
+            var effort = String(e.effort || e);
+            var selected = popupSelectedModel;
+            hidePopup();
+            applyModelSelection(selected, effort);
+        }
+
+        function applyModelSelection(selected, effort) {
+            var modelId = selected.id || selected.model;
+            try {
+                var opts = { model: modelId, approvalPolicy: "never" };
+                if (effort) opts.reasoningEffort = effort;
+                var thread = codexClient.startThread(opts);
+                state.threadId = thread.id;
+                state.turnCount = 0;
+                state.modelContextSent = false;
+                state.lastPlan = null;
+                state.currentModel = modelId;
+                state.currentEffort = effort;
+
+                var displayName = selected.displayName || modelId;
+                var msg = "Switched to **" + displayName + "** (`" + modelId + "`)";
+                if (effort) msg += ", reasoning effort: **" + effort + "**";
+                msg += ". New thread: " + thread.id;
+                appendChat("[System]", msg);
+                if (w.threadLabel && !w.threadLabel.isDisposed()) {
+                    w.threadLabel.setText(thread.id);
+                }
+            } catch (e) {
+                appendChat("[Error]", "Failed to switch model: " + e.message);
             }
         }
 
@@ -1043,6 +1203,7 @@
             if (w.chatBrowser && !w.chatBrowser.isDisposed()) {
                 var md = "| Property | Value |\n|----------|-------|\n" +
                     "| Connected | " + (state.connected ? "Yes" : "No") + " |\n" +
+                    "| Model | " + (state.currentModel ? "`" + state.currentModel + "`" : "server default") + " |\n" +
                     "| Thread | `" + (state.threadId || "none") + "` |\n" +
                     "| Turn count | " + state.turnCount + " |\n" +
                     "| Model context sent | " + (state.modelContextSent ? "Yes" : "No") + " |\n" +
@@ -1055,6 +1216,7 @@
                 );
             } else {
                 appendChat("[System]", "Connected: " + state.connected +
+                    " | Model: " + (state.currentModel || "server default") +
                     " | Thread: " + (state.threadId || "none") +
                     " | Turns: " + state.turnCount +
                     " | Context sent: " + state.modelContextSent +
@@ -1069,6 +1231,7 @@
             apply: handleApply,
             clear: handleClear,
             context: handleContext,
+            model: handleModel,
             help: handleHelp,
             status: handleStatus
         };
@@ -1078,6 +1241,7 @@
             { name: "apply",   args: "",               desc: "Execute the last generated plan" },
             { name: "clear",   args: "",               desc: "Start a new conversation thread" },
             { name: "context", args: "",               desc: "Show model context summary" },
+            { name: "model",   args: "",               desc: "Switch the active model" },
             { name: "help",    args: "",               desc: "Show this help message" },
             { name: "status",  args: "",               desc: "Show connection and thread info" }
         ];
@@ -1085,6 +1249,10 @@
         // ── Slash command autocomplete popup ────────────────────────────
         var popupShell = null;
         var popupTable = null;
+        var popupMode = "command";  // "command", "model", or "effort"
+        var popupModels = null;     // cached model list for model picker
+        var popupSelectedModel = null;  // model selected in first step, awaiting effort pick
+        var popupEfforts = null;    // cached effort list for effort picker
 
         function createPopup(dialogShell) {
             popupShell = new Shell(dialogShell, SWT.NO_TRIM | SWT.ON_TOP);
@@ -1109,10 +1277,12 @@
                 });
             });
 
-            // Hide when popup loses focus
+            // Hide when popup loses focus (but not during model/effort picker transitions)
             popupShell.addListener(SWT.Deactivate, function () {
                 display.asyncExec(function () {
-                    hidePopup();
+                    if (popupMode === "command") {
+                        hidePopup();
+                    }
                 });
             });
         }
@@ -1124,6 +1294,9 @@
         function showPopup(filter) {
             if (!popupShell || popupShell.isDisposed()) return;
             if (!w.inputField || w.inputField.isDisposed()) return;
+
+            popupMode = "command";
+            popupModels = null;
 
             // Filter commands
             var matches = [];
@@ -1187,6 +1360,10 @@
             if (popupShell && !popupShell.isDisposed() && popupShell.isVisible()) {
                 popupShell.setVisible(false);
             }
+            popupMode = "command";
+            popupModels = null;
+            popupSelectedModel = null;
+            popupEfforts = null;
         }
 
         function selectPopupItem(delta) {
@@ -1202,6 +1379,14 @@
 
         function confirmPopupSelection() {
             if (!isPopupVisible()) return;
+            if (popupMode === "model") {
+                confirmModelSelection();
+                return;
+            }
+            if (popupMode === "effort") {
+                confirmEffortSelection();
+                return;
+            }
             var idx = popupTable.getSelectionIndex();
             if (idx < 0) return;
             var item = popupTable.getItem(idx);
@@ -1364,7 +1549,18 @@
                             }
                             if (kc === Number(SWT.ESC)) {
                                 e.doit = false;
-                                hidePopup();
+                                if (popupMode === "effort" && popupModels) {
+                                    // Go back to model picker
+                                    popupShell.setVisible(false);
+                                    var models = popupModels;
+                                    popupSelectedModel = null;
+                                    popupEfforts = null;
+                                    display.asyncExec(function () {
+                                        showModelPicker(models);
+                                    });
+                                } else {
+                                    hidePopup();
+                                }
                                 return;
                             }
                         }
@@ -1372,6 +1568,9 @@
 
                     // Modify listener for autocomplete popup
                     w.inputField.addListener(SWT.Modify, function () {
+                        // Don't interfere when the model/effort picker is showing
+                        if ((popupMode === "model" || popupMode === "effort") && isPopupVisible()) return;
+
                         var text = String(w.inputField.getText());
                         if (text.length > 0 && text.charAt(0) === "/") {
                             // Check if cursor is still in the command portion (before any space)
