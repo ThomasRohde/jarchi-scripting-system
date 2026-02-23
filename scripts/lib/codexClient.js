@@ -449,7 +449,7 @@
             var msg = _pollOnce();
             if (msg === null) {
                 if (onPoll) onPoll();
-                JThread.sleep(1);
+                JThread.sleep(10);
                 continue;
             }
 
@@ -496,7 +496,7 @@
             var msg2 = _pollOnce();
             if (msg2 === null) {
                 if (onPoll) onPoll();
-                JThread.sleep(1);
+                JThread.sleep(10);
                 continue;
             }
 

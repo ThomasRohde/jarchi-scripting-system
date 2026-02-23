@@ -150,11 +150,23 @@
 
         function sanitizeHtml(html) {
             return String(html)
+                // Strip <script> and <style> tags with content
                 .replace(/<script[\s>][\s\S]*?<\/script>/gi, "")
+                .replace(/<style[\s>][\s\S]*?<\/style>/gi, "")
+                // Strip dangerous container/void tags
+                .replace(/<\/?(iframe|object|embed|form|base|svg|math|meta|link)[\s>][^>]*>/gi, "")
+                // Strip event handler attributes (quoted and unquoted)
                 .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "")
                 .replace(/\bon\w+\s*=\s*[^\s>]+/gi, "")
+                // Strip formaction attributes (quoted and unquoted)
+                .replace(/\bformaction\s*=\s*["'][^"']*["']/gi, "")
+                .replace(/\bformaction\s*=\s*[^\s>]+/gi, "")
+                // Neutralize javascript: URIs in href/src
                 .replace(/href\s*=\s*["']javascript:[^"']*["']/gi, 'href="#"')
-                .replace(/src\s*=\s*["']javascript:[^"']*["']/gi, 'src=""');
+                .replace(/src\s*=\s*["']javascript:[^"']*["']/gi, 'src=""')
+                // Neutralize data: URIs in href/src
+                .replace(/href\s*=\s*["']data:[^"']*["']/gi, 'href="#"')
+                .replace(/src\s*=\s*["']data:[^"']*["']/gi, 'src=""');
         }
 
         function renderMarkdown(text) {
@@ -517,6 +529,8 @@
             state.connected = false;
             state.threadId = null;
             state.lastPlan = null;
+            state.currentModel = null;
+            state.currentEffort = null;
             appendChat("[System]", "Disconnected.");
             myDialog.dialog.setMessage("Disconnected", 0);
             updateUI();
@@ -788,6 +802,8 @@
             var useBrowser = w.chatBrowser && !w.chatBrowser.isDisposed();
 
             try {
+                state.lastPlan = null; // Invalidate any previous plan immediately
+
                 var context = codexClient.buildPlanningContext({
                     maxElements: 100,
                     relationships: true,
