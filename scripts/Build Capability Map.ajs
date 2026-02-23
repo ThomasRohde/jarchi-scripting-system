@@ -3,9 +3,10 @@
  * @description Finds all capabilities in the model and creates a hierarchical map view.
  * Uses an adaptive flow layout that packs children in rows, trying multiple target widths
  * and picking the best layout to minimize whitespace. All leaf capabilities have uniform
- * size based on the longest label. Subtrees are grouped before leaves for tighter packing.
+ * size based on the longest label. Subtrees are prioritized and leaves back-fill unused
+ * row space before creating additional leaf-only rows.
  * Shows a configuration dialog for layout, sizing, colors, and depth limiting.
- * @version 2.0.0
+ * @version 2.2.0
  * @author Thomas Rohde
  * @lastModifiedDate 2026-02-23
  */
@@ -124,7 +125,8 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
 
     /**
      * Score a layout — lower is better.
-     * Balances aspect ratio, wasted space, row uniformity, and last-row fill.
+     * Balances aspect ratio, wasted space, row uniformity, height uniformity,
+     * and last-row fill.
      */
     function scoreLayout(layout, options) {
         if (layout.rows.length === 0) return Infinity;
@@ -153,6 +155,31 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
         }
         var rowVariance = Math.sqrt(varianceSum / layout.rows.length);
 
+        // Height variance within rows — penalize uneven peer rows.
+        // Rows that intentionally mix subtrees and leaves are exempt.
+        var heightVarianceSum = 0;
+        var heightVarianceRows = 0;
+        for (var r3 = 0; r3 < layout.rows.length; r3++) {
+            var rowItems = layout.rows[r3].items;
+            if (rowItems.length > 1) {
+                var hasLeaf = false;
+                var hasSubtree = false;
+                var maxH = 0, minH = Infinity;
+                for (var j = 0; j < rowItems.length; j++) {
+                    if (rowItems[j].size.h > maxH) maxH = rowItems[j].size.h;
+                    if (rowItems[j].size.h < minH) minH = rowItems[j].size.h;
+                    if (rowItems[j]._effectiveLeaf) hasLeaf = true;
+                    else hasSubtree = true;
+                }
+                if (hasLeaf && hasSubtree) continue;
+                if (maxH > 0) {
+                    heightVarianceSum += (maxH - minH) / maxH;
+                    heightVarianceRows++;
+                }
+            }
+        }
+        var heightVariance = heightVarianceRows > 0 ? heightVarianceSum / heightVarianceRows : 0;
+
         // Last row fill penalty
         var lastRowPenalty = 0;
         if (layout.rows.length > 1) {
@@ -166,6 +193,7 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
         return ratioPenalty * 3.0
              + wastedFraction * 2.0
              + rowVariance * 1.5
+             + heightVariance * 2.5
              + lastRowPenalty * 1.0;
     }
 
@@ -201,6 +229,170 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
             }
 
             var layout = packRows(children, targetW, options);
+            var score = scoreLayout(layout, options);
+            if (score < bestScore) {
+                bestScore = score;
+                bestLayout = layout;
+            }
+        }
+
+        return bestLayout;
+    }
+
+    /**
+     * Convert row metadata into a final layout envelope.
+     */
+    function buildLayoutFromRows(rows, options) {
+        var maxRowWidth = 0;
+        var h = HEADER_HEIGHT;
+        for (var r = 0; r < rows.length; r++) {
+            if (rows[r].width > maxRowWidth) maxRowWidth = rows[r].width;
+            if (r > 0) h += options.gap;
+            h += rows[r].height;
+        }
+        h += options.padding;
+        return { w: maxRowWidth + 2 * options.padding, h: h, rows: rows };
+    }
+
+    /**
+     * Merge two sets of packed rows into a single layout result.
+     */
+    function mergeRowResults(topRows, bottomRows, options) {
+        return buildLayoutFromRows(topRows.rows.concat(bottomRows.rows), options);
+    }
+
+    /**
+     * Ensure a row has explicit placements with per-item offsets.
+     * Default placements are a simple left-to-right run at y=0.
+     */
+    function ensureRowPlacements(row, options) {
+        if (row.placements && row.placements.length > 0) return;
+
+        row.placements = [];
+        var x = 0;
+        for (var i = 0; i < row.items.length; i++) {
+            var item = row.items[i];
+            row.placements.push({ item: item, x: x, y: 0 });
+            x += item.size.w + options.gap;
+        }
+    }
+
+    /**
+     * Fill spare width in subtree rows with leaves before creating
+     * additional leaf-only rows. In mixed rows, leaves are stacked in
+     * columns to exploit vertical space beside tall subtree containers.
+     * Lower rows are filled first because they tend to have the largest
+     * usable area.
+     *
+     * @param {Array} rows - subtree row metadata from packRows
+     * @param {Array} leaves - leaf nodes to place
+     * @param {number} contentWidth - available row width excluding padding
+     * @param {Object} options - layout options
+     * @returns {Array} leaves that did not fit in subtree rows
+     */
+    function backfillRowsWithLeaves(rows, leaves, contentWidth, options) {
+        if (leaves.length === 0) return [];
+
+        var leafIdx = 0;
+        var leafW = leaves[0].size.w;
+        var leafH = leaves[0].size.h;
+
+        for (var r = rows.length - 1; r >= 0 && leafIdx < leaves.length; r--) {
+            var row = rows[r];
+            var startX = row.width + (row.items.length > 0 ? options.gap : 0);
+            var availableWidth = contentWidth - startX;
+            if (availableWidth < leafW) continue;
+
+            // Number of leaf columns that fit in remaining width
+            var maxCols = Math.floor((availableWidth + options.gap) / (leafW + options.gap));
+            if (maxCols <= 0) continue;
+
+            // Number of stacked leaves that fit vertically in this row
+            var maxRowsPerCol = Math.floor((row.height + options.gap) / (leafH + options.gap));
+            if (maxRowsPerCol <= 0) continue;
+
+            var capacity = maxCols * maxRowsPerCol;
+            var placeCount = Math.min(capacity, leaves.length - leafIdx);
+            if (placeCount <= 0) continue;
+
+            ensureRowPlacements(row, options);
+
+            for (var p = 0; p < placeCount; p++) {
+                var col = Math.floor(p / maxRowsPerCol);
+                var stackRow = p % maxRowsPerCol;
+                var leaf = leaves[leafIdx++];
+
+                var px = startX + col * (leafW + options.gap);
+                var py = stackRow * (leafH + options.gap);
+
+                row.placements.push({ item: leaf, x: px, y: py });
+                row.items.push(leaf);
+
+                var right = px + leaf.size.w;
+                var bottom = py + leaf.size.h;
+                if (right > row.width) row.width = right;
+                if (bottom > row.height) row.height = bottom;
+            }
+        }
+
+        return leafIdx < leaves.length ? leaves.slice(leafIdx) : [];
+    }
+
+    /**
+     * Pack subtrees and leaves in two phases:
+     * 1) pack subtrees, then back-fill free row space with leaves,
+     * 2) place remaining leaves in additional rows.
+     * Tries candidate widths from both groups and picks the best layout.
+     *
+     * @param {Array} subtrees - non-leaf child nodes
+     * @param {Array} leaves - leaf child nodes
+     * @param {Object} options - layout options
+     * @returns {{ w: number, h: number, rows: Array }}
+     */
+    function computeBandedFlowLayout(subtrees, leaves, options) {
+        var bestLayout = null;
+        var bestScore = Infinity;
+
+        // Collect candidate target widths from both groups
+        var candidateWidths = [];
+        var k, i, tw;
+
+        for (k = 1; k <= subtrees.length; k++) {
+            tw = 2 * options.padding;
+            for (i = 0; i < k; i++) {
+                tw += subtrees[i].size.w;
+                if (i > 0) tw += options.gap;
+            }
+            candidateWidths.push(tw);
+        }
+
+        for (k = 1; k <= leaves.length; k++) {
+            tw = 2 * options.padding;
+            for (i = 0; i < k; i++) {
+                tw += leaves[i].size.w;
+                if (i > 0) tw += options.gap;
+            }
+            candidateWidths.push(tw);
+        }
+
+        for (var c = 0; c < candidateWidths.length; c++) {
+            var targetW = candidateWidths[c];
+            var stResult = packRows(subtrees, targetW, options);
+            var remainingLeaves = backfillRowsWithLeaves(
+                stResult.rows,
+                leaves,
+                targetW - 2 * options.padding,
+                options
+            );
+
+            var layout;
+            if (remainingLeaves.length > 0) {
+                var lfResult = packRows(remainingLeaves, targetW, options);
+                layout = mergeRowResults(stResult, lfResult, options);
+            } else {
+                layout = buildLayoutFromRows(stResult.rows, options);
+            }
+
             var score = scoreLayout(layout, options);
             if (score < bestScore) {
                 bestScore = score;
@@ -384,8 +576,23 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
                 });
             }
 
-            // Find optimal flow layout
-            var layout = computeFlowLayout(node.children, options);
+            // Pack subtrees and leaves in separate bands to avoid mixing heights
+            var subtrees = [];
+            var leaves = [];
+            for (var j = 0; j < node.children.length; j++) {
+                if (node.children[j]._effectiveLeaf) {
+                    leaves.push(node.children[j]);
+                } else {
+                    subtrees.push(node.children[j]);
+                }
+            }
+
+            var layout;
+            if (subtrees.length > 0 && leaves.length > 0) {
+                layout = computeBandedFlowLayout(subtrees, leaves, options);
+            } else {
+                layout = computeFlowLayout(node.children, options);
+            }
             node.size = { w: layout.w, h: layout.h };
             node.rows = layout.rows;
         }
@@ -430,13 +637,26 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
                 var y = HEADER_HEIGHT;
                 for (var r = 0; r < node.rows.length; r++) {
                     var row = node.rows[r];
-                    var x = options.padding;
-                    for (var i = 0; i < row.items.length; i++) {
-                        var child = row.items[i];
-                        // Center child vertically within its row
-                        var cy = y + Math.floor((row.height - child.size.h) / 2);
-                        addNode(child, diagObj, x, cy, depth + 1);
-                        x += child.size.w + options.gap;
+                    if (row.placements && row.placements.length > 0) {
+                        for (var p = 0; p < row.placements.length; p++) {
+                            var placement = row.placements[p];
+                            addNode(
+                                placement.item,
+                                diagObj,
+                                options.padding + placement.x,
+                                y + placement.y,
+                                depth + 1
+                            );
+                        }
+                    } else {
+                        var x = options.padding;
+                        for (var i = 0; i < row.items.length; i++) {
+                            var child = row.items[i];
+                            // Top-align children within their row for tighter packing
+                            var cy = y;
+                            addNode(child, diagObj, x, cy, depth + 1);
+                            x += child.size.w + options.gap;
+                        }
                     }
                     y += row.height + options.gap;
                 }
