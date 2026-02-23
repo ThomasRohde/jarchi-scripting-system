@@ -1,0 +1,405 @@
+/**
+ * @name Import Capabilities from JSON
+ * @description Reads a JSON object from the clipboard and creates a hierarchy of
+ * ArchiMate business capability elements. Uses heuristics to detect the JSON schema:
+ * flat with parent references, nested with children arrays, or simple name/description lists.
+ * @version 1.0.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-23
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    var Clipboard = Java.type("org.eclipse.swt.dnd.Clipboard");
+    var TextTransfer = Java.type("org.eclipse.swt.dnd.TextTransfer");
+    var Display = swtImports.Display;
+
+    /**
+     * Read text from the system clipboard.
+     * @returns {string|null} clipboard text or null
+     */
+    function readClipboard() {
+        var clipboard = new Clipboard(Display.getCurrent());
+        try {
+            var textTransfer = TextTransfer.getInstance();
+            var text = clipboard.getContents(textTransfer);
+            return text ? String(text) : null;
+        } finally {
+            clipboard.dispose();
+        }
+    }
+
+    // =====================================================================
+    // Schema detection heuristics
+    // =====================================================================
+
+    /** Guess the field that holds the element name */
+    function findNameField(obj) {
+        var candidates = ["name", "title", "label", "capability", "capabilityName", "capability_name"];
+        for (var i = 0; i < candidates.length; i++) {
+            if (obj.hasOwnProperty(candidates[i]) && typeof obj[candidates[i]] === "string") {
+                return candidates[i];
+            }
+        }
+        // Fall back to first string field
+        var keys = Object.keys(obj);
+        for (var k = 0; k < keys.length; k++) {
+            if (typeof obj[keys[k]] === "string") return keys[k];
+        }
+        return null;
+    }
+
+    /** Guess the field that holds the description */
+    function findDescField(obj) {
+        var candidates = ["description", "desc", "documentation", "doc", "summary", "details", "text"];
+        for (var i = 0; i < candidates.length; i++) {
+            if (obj.hasOwnProperty(candidates[i]) && typeof obj[candidates[i]] === "string") {
+                return candidates[i];
+            }
+        }
+        return null;
+    }
+
+    /** Guess the field that holds children (array of objects) */
+    function findChildrenField(obj) {
+        var candidates = ["children", "subCapabilities", "sub_capabilities", "subcapabilities",
+            "capabilities", "items", "nodes", "subs", "sub"];
+        for (var i = 0; i < candidates.length; i++) {
+            if (obj.hasOwnProperty(candidates[i]) && Array.isArray(obj[candidates[i]])) {
+                return candidates[i];
+            }
+        }
+        // Fall back to any array-of-objects field
+        var keys = Object.keys(obj);
+        for (var k = 0; k < keys.length; k++) {
+            var val = obj[keys[k]];
+            if (Array.isArray(val) && val.length > 0 && typeof val[0] === "object" && val[0] !== null) {
+                return keys[k];
+            }
+        }
+        return null;
+    }
+
+    /** Guess the field that holds a parent reference (flat schema) */
+    function findParentField(obj) {
+        var candidates = ["parent", "parentName", "parent_name", "parentId", "parent_id",
+            "parentCapability", "parent_capability"];
+        for (var i = 0; i < candidates.length; i++) {
+            if (obj.hasOwnProperty(candidates[i])) {
+                return candidates[i];
+            }
+        }
+        return null;
+    }
+
+    /** Guess the field that holds a unique ID */
+    function findIdField(obj) {
+        var candidates = ["id", "ID", "key", "code", "identifier"];
+        for (var i = 0; i < candidates.length; i++) {
+            if (obj.hasOwnProperty(candidates[i])) {
+                return candidates[i];
+            }
+        }
+        return null;
+    }
+
+    // =====================================================================
+    // Schema types
+    // =====================================================================
+
+    var SCHEMA_NESTED = "nested";       // tree with children arrays
+    var SCHEMA_FLAT = "flat";           // flat list with parent references
+    var SCHEMA_SIMPLE = "simple";       // flat list, no hierarchy
+
+    /**
+     * Detect the schema type from a representative item in the data.
+     */
+    function detectSchema(items) {
+        if (!Array.isArray(items) || items.length === 0) return null;
+
+        var sample = items[0];
+        if (typeof sample !== "object" || sample === null) return null;
+
+        // Check for children field → nested
+        if (findChildrenField(sample) !== null) return SCHEMA_NESTED;
+
+        // Check multiple items for parent references
+        for (var i = 0; i < Math.min(items.length, 5); i++) {
+            if (findParentField(items[i]) !== null) return SCHEMA_FLAT;
+        }
+
+        // Default: simple flat list
+        return SCHEMA_SIMPLE;
+    }
+
+    // =====================================================================
+    // Normalization — convert any schema to a uniform tree
+    // =====================================================================
+
+    /**
+     * Normalize a single node (and its children recursively) into
+     * { name, description, children[] }
+     */
+    function normalizeNode(obj, nameField, descField, childrenField) {
+        var name = obj[nameField];
+        if (!name || (typeof name === "string" && !name.trim())) name = "-- unnamed --";
+
+        var desc = descField && obj[descField] ? String(obj[descField]) : "";
+        var children = [];
+
+        if (childrenField && Array.isArray(obj[childrenField])) {
+            for (var i = 0; i < obj[childrenField].length; i++) {
+                children.push(normalizeNode(obj[childrenField][i], nameField, descField, childrenField));
+            }
+        }
+
+        return { name: String(name), description: desc, children: children };
+    }
+
+    /**
+     * Build tree from flat list with parent references.
+     */
+    function buildTreeFromFlat(items, nameField, descField, parentField, idField) {
+        // Build lookup by id (or name if no id)
+        var lookup = {};
+        var roots = [];
+
+        // First pass: create normalized nodes
+        var nodes = [];
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var key = idField ? String(item[idField]) : String(item[nameField]);
+            var node = {
+                name: String(item[nameField] || "-- unnamed --"),
+                description: descField && item[descField] ? String(item[descField]) : "",
+                children: [],
+                _parentRef: item[parentField] != null ? String(item[parentField]) : null
+            };
+            nodes.push(node);
+            lookup[key] = node;
+        }
+
+        // Second pass: wire up parent-child
+        for (var j = 0; j < nodes.length; j++) {
+            var n = nodes[j];
+            if (n._parentRef && lookup[n._parentRef]) {
+                lookup[n._parentRef].children.push(n);
+            } else {
+                roots.push(n);
+            }
+            delete n._parentRef;
+        }
+
+        return roots;
+    }
+
+    // =====================================================================
+    // Create ArchiMate elements from the tree
+    // =====================================================================
+
+    var createdCount = 0;
+    var relationCount = 0;
+
+    /**
+     * Recursively create business-capability elements and composition relationships.
+     * @param {Object} node - { name, description, children[] }
+     * @param {Object|null} parentElement - jArchi element of the parent capability, or null for root
+     * @returns {Object} the created jArchi element
+     */
+    function createCapability(node, parentElement) {
+        var el = model.createElement("capability", node.name);
+        if (node.description) {
+            el.documentation = node.description;
+        }
+        createdCount++;
+
+        // Create composition relationship: parent composes child
+        if (parentElement) {
+            model.createRelationship("composition-relationship", "", parentElement, el);
+            relationCount++;
+        }
+
+        // Recurse into children
+        for (var i = 0; i < node.children.length; i++) {
+            createCapability(node.children[i], el);
+        }
+
+        return el;
+    }
+
+    /**
+     * Count total nodes in a tree (for reporting).
+     */
+    function countNodes(nodes) {
+        var total = 0;
+        for (var i = 0; i < nodes.length; i++) {
+            total += 1 + countNodes(nodes[i].children);
+        }
+        return total;
+    }
+
+    // =====================================================================
+    // Main
+    // =====================================================================
+
+    try {
+        requireModel();
+        log.header("Import Capabilities from JSON");
+
+        // 1. Read clipboard
+        var clipText = readClipboard();
+        if (!clipText || !clipText.trim()) {
+            window.alert("Clipboard is empty. Copy a JSON object or array to the clipboard first.");
+            return;
+        }
+
+        log.info("Read " + clipText.length + " characters from clipboard.");
+
+        // 2. Parse JSON
+        var data;
+        try {
+            data = JSON.parse(clipText);
+        } catch (parseErr) {
+            window.alert("Clipboard content is not valid JSON:\n" + parseErr.message);
+            return;
+        }
+
+        // 3. Normalize to an array of items
+        var items;
+        var isWrapped = false;
+
+        if (Array.isArray(data)) {
+            items = data;
+        } else if (typeof data === "object" && data !== null) {
+            // Could be a single root node, or a wrapper object with an array field
+            // Check if the object itself looks like a capability node
+            var nameF = findNameField(data);
+            var childF = findChildrenField(data);
+
+            if (nameF && childF) {
+                // Single root node with children — treat as one-element nested array
+                items = [data];
+            } else if (childF && !nameF) {
+                // Wrapper object — unwrap the array
+                items = data[childF];
+                isWrapped = true;
+            } else if (nameF) {
+                // Single capability with no children
+                items = [data];
+            } else {
+                // Try to find any array property
+                var keys = Object.keys(data);
+                var found = false;
+                for (var k = 0; k < keys.length; k++) {
+                    if (Array.isArray(data[keys[k]])) {
+                        items = data[keys[k]];
+                        isWrapped = true;
+                        found = true;
+                        log.info("Unwrapped array from property \"" + keys[k] + "\".");
+                        break;
+                    }
+                }
+                if (!found) {
+                    window.alert("Could not find an array of capabilities in the JSON. Expected an array or an object with a children/items array.");
+                    return;
+                }
+            }
+        } else {
+            window.alert("Clipboard JSON must be an object or array, got: " + typeof data);
+            return;
+        }
+
+        if (!items || items.length === 0) {
+            window.alert("The JSON contains an empty array. Nothing to import.");
+            return;
+        }
+
+        // 4. Detect schema
+        var schema = detectSchema(items);
+        if (!schema) {
+            window.alert("Could not determine the JSON schema. Items must be objects with at least a name/title field.");
+            return;
+        }
+
+        log.info("Detected schema: " + schema);
+
+        // 5. Determine fields from first item
+        var sample = items[0];
+        var nameField = findNameField(sample);
+        if (!nameField) {
+            window.alert("Could not find a name field in the JSON objects. Expected fields like: name, title, label, capability.");
+            return;
+        }
+
+        var descField = findDescField(sample);
+        log.detail("  Name field: \"" + nameField + "\"");
+        if (descField) log.detail("  Description field: \"" + descField + "\"");
+
+        // 6. Build normalized tree
+        var tree;
+
+        if (schema === SCHEMA_NESTED) {
+            var childrenField = findChildrenField(sample);
+            log.detail("  Children field: \"" + childrenField + "\"");
+            tree = [];
+            for (var i = 0; i < items.length; i++) {
+                tree.push(normalizeNode(items[i], nameField, descField, childrenField));
+            }
+        } else if (schema === SCHEMA_FLAT) {
+            var parentField = findParentField(sample);
+            var idField = findIdField(sample);
+            log.detail("  Parent field: \"" + parentField + "\"");
+            if (idField) log.detail("  ID field: \"" + idField + "\"");
+            tree = buildTreeFromFlat(items, nameField, descField, parentField, idField);
+        } else {
+            // SCHEMA_SIMPLE — flat list, no hierarchy
+            tree = [];
+            for (var j = 0; j < items.length; j++) {
+                tree.push({
+                    name: String(items[j][nameField] || "-- unnamed --"),
+                    description: descField && items[j][descField] ? String(items[j][descField]) : "",
+                    children: []
+                });
+            }
+        }
+
+        var totalNodes = countNodes(tree);
+        log.info("Parsed " + totalNodes + " capability node(s) (" + tree.length + " root(s)).");
+
+        // 7. Confirm before creating
+        var msg = "Create " + totalNodes + " business capability element(s)";
+        if (schema !== SCHEMA_SIMPLE) {
+            msg += " with composition relationships";
+        }
+        msg += "?\n\nSchema: " + schema;
+        msg += "\nRoots: " + tree.length;
+
+        if (!window.confirm(msg)) {
+            log.warn("Cancelled by user.");
+            return;
+        }
+
+        // 8. Create elements
+        for (var r = 0; r < tree.length; r++) {
+            createCapability(tree[r], null);
+        }
+
+        log.success("Import Capabilities from JSON complete.");
+        log.detail("  Created " + createdCount + " business capability element(s).");
+        if (relationCount > 0) {
+            log.detail("  Created " + relationCount + " composition relationship(s).");
+        }
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

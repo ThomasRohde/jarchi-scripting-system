@@ -13,6 +13,7 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 | Script | Description |
 |--------|-------------|
 | **ELK Layout** | Automatic graph layout using the ELK (Eclipse Layout Kernel) engine. Provides a comprehensive options dialog for configuring layout algorithm, spacing, edge routing, port constraints, and more. Applies computed positions and bendpoints back to the active ArchiMate view. |
+| **Build Capability Map** | Finds all capabilities in the model and creates a hierarchical map view. Builds a tree from composition/aggregation relationships, lays out children in symmetric grids, and uses uniform leaf sizes based on the longest label. |
 
 ## Analysis
 
@@ -54,6 +55,7 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 | **Copy to Clipboard** | Copies selected elements' information to the clipboard as tab-delimited text. The output can be pasted directly into Excel, Word, or other applications. Includes name, type, documentation, and properties. |
 | **Export View to CSV** | Exports elements and relationships from the active view to a CSV file. Creates two CSV files: one for elements (name, type, documentation) and one for relationships (source, type, target, name). |
 | **Import from CSV** | Imports elements and/or relationships from CSV files into the model. Accepts the same CSV format produced by "Export View to CSV". Auto-detects whether the file contains elements or relationships based on the header row. |
+| **Import Capabilities from JSON** | Reads a JSON object from the clipboard and creates ArchiMate business capability elements with composition relationships. Auto-detects the JSON schema: nested trees with children arrays, flat lists with parent references, or simple name/description lists. |
 
 ## Cleanup
 

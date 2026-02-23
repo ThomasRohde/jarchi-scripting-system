@@ -1,0 +1,28 @@
+{
+  "id": "layout.build_capability_map",
+  "title": "Build Capability Map",
+  "category": ["Layout"],
+  "order": 20,
+
+  "script": {
+    "path": "Build Capability Map.ajs"
+  },
+
+  "description": "Finds all capabilities in the model and creates a hierarchical map view. Builds a tree from composition/aggregation relationships, lays out children in symmetric grids, and uses uniform leaf sizes based on the longest label.",
+  "tags": ["capability", "layout", "hierarchy", "map", "strategy", "nested", "tree"],
+
+  "help": {
+    "markdown_path": ""
+  },
+
+  "run": {
+    "danger_level": "medium",
+    "confirm_message": ""
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}

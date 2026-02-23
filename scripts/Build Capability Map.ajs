@@ -1,0 +1,426 @@
+/**
+ * @name Build Capability Map
+ * @description Finds all capabilities in the model and creates a hierarchical map view.
+ * Uses an adaptive flow layout that packs children in rows, trying multiple target widths
+ * and picking the best layout to minimize whitespace. All leaf capabilities have uniform
+ * size based on the longest label. Subtrees are grouped before leaves for tighter packing.
+ * @version 1.1.0
+ * @author Thomas Rohde
+ * @lastModifiedDate 2026-02-23
+ */
+
+console.clear();
+console.show();
+
+load(__DIR__ + "lib/log.js");
+load(__DIR__ + "lib/requireModel.js");
+
+(function () {
+    "use strict";
+
+    // =====================================================================
+    // Layout constants
+    // =====================================================================
+    var PADDING = 12;
+    var HEADER_HEIGHT = 30;
+    var GAP = 8;
+    var MIN_LEAF_WIDTH = 120;
+    var MAX_LEAF_WIDTH = 200;
+    var LEAF_HEIGHT = 45;
+    var ROOT_GAP = 30;
+    var VIEW_MARGIN = 20;
+    var TARGET_ASPECT_RATIO = 1.6; // slightly wider than tall
+
+    // =====================================================================
+    // Depth-based color palette (light pastels for business documents)
+    // =====================================================================
+    var LEAF_COLOR = "#E8E8E8";
+    var DEPTH_COLORS = [
+        "#D6E4F0", // Level 0: light blue
+        "#D9EAD3", // Level 1: light green
+        "#E1D5E7", // Level 2: light lavender
+        "#FCE5CD", // Level 3: light peach
+        "#FFF2CC", // Level 4: light yellow
+        "#F4CCCC"  // Level 5+: light pink
+    ];
+
+    // =====================================================================
+    // Java types for text measurement
+    // =====================================================================
+    var JFont = Java.type("java.awt.Font");
+    var BufferedImage = Java.type("java.awt.image.BufferedImage");
+
+    /**
+     * Measure text pixel width using Java AWT FontMetrics.
+     * @param {string} text
+     * @returns {number} width in pixels
+     */
+    function measureTextWidth(text) {
+        if (!text || !text.trim()) return 40;
+        var img = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        var g2d = img.createGraphics();
+        g2d.setFont(new JFont("Segoe UI", JFont.PLAIN, 12));
+        var width = g2d.getFontMetrics().stringWidth(text);
+        g2d.dispose();
+        return width;
+    }
+
+    /**
+     * Get the display name for an element, handling null/blank names.
+     * @param {Object} el - jArchi element
+     * @returns {string}
+     */
+    function getName(el) {
+        var name = el.name;
+        return name && name.trim() ? name.trim() : "-- unnamed --";
+    }
+
+    // =====================================================================
+    // Adaptive Flow Layout
+    // =====================================================================
+
+    /**
+     * Pack children into horizontal rows given a target container width.
+     * Items flow left-to-right, wrapping when the next item would exceed
+     * the available content width.
+     *
+     * @param {Array} children - nodes with .size.w and .size.h
+     * @param {number} targetWidth - total container width including padding
+     * @returns {{ w: number, h: number, rows: Array }}
+     */
+    function packRows(children, targetWidth) {
+        var contentWidth = targetWidth - 2 * PADDING;
+        var rows = [];
+        var currentRow = [];
+        var currentRowWidth = 0;
+
+        for (var i = 0; i < children.length; i++) {
+            var child = children[i];
+            var needed = currentRow.length > 0 ? GAP + child.size.w : child.size.w;
+
+            if (currentRow.length > 0 && currentRowWidth + needed > contentWidth) {
+                rows.push(currentRow);
+                currentRow = [child];
+                currentRowWidth = child.size.w;
+            } else {
+                currentRow.push(child);
+                currentRowWidth += needed;
+            }
+        }
+        if (currentRow.length > 0) rows.push(currentRow);
+
+        // Compute per-row metrics and overall dimensions
+        var maxRowWidth = 0;
+        var totalHeight = HEADER_HEIGHT;
+        var rowMeta = [];
+
+        for (var r = 0; r < rows.length; r++) {
+            var row = rows[r];
+            var rowWidth = 0;
+            var rowHeight = 0;
+            for (var j = 0; j < row.length; j++) {
+                if (j > 0) rowWidth += GAP;
+                rowWidth += row[j].size.w;
+                if (row[j].size.h > rowHeight) rowHeight = row[j].size.h;
+            }
+            if (rowWidth > maxRowWidth) maxRowWidth = rowWidth;
+            if (r > 0) totalHeight += GAP;
+            totalHeight += rowHeight;
+            rowMeta.push({ items: row, height: rowHeight, width: rowWidth });
+        }
+
+        return {
+            w: maxRowWidth + 2 * PADDING,
+            h: totalHeight + PADDING,
+            rows: rowMeta
+        };
+    }
+
+    /**
+     * Score a layout — lower is better.
+     * Balances aspect ratio, wasted space, row uniformity, and last-row fill.
+     */
+    function scoreLayout(layout) {
+        if (layout.rows.length === 0) return Infinity;
+
+        // Aspect ratio: prefer close to target
+        var aspect = layout.w / layout.h;
+        var ratioPenalty = Math.abs(aspect - TARGET_ASPECT_RATIO);
+
+        // Wasted space fraction
+        var totalChildArea = 0;
+        for (var r = 0; r < layout.rows.length; r++) {
+            for (var i = 0; i < layout.rows[r].items.length; i++) {
+                var s = layout.rows[r].items[i].size;
+                totalChildArea += s.w * s.h;
+            }
+        }
+        var containerArea = layout.w * layout.h;
+        var wastedFraction = 1 - totalChildArea / containerArea;
+
+        // Row width balance — penalize rows much narrower than the widest
+        var maxW = layout.w - 2 * PADDING;
+        var varianceSum = 0;
+        for (var r2 = 0; r2 < layout.rows.length; r2++) {
+            var fill = maxW > 0 ? layout.rows[r2].width / maxW : 1;
+            varianceSum += (1 - fill) * (1 - fill);
+        }
+        var rowVariance = Math.sqrt(varianceSum / layout.rows.length);
+
+        // Last row fill penalty
+        var lastRowPenalty = 0;
+        if (layout.rows.length > 1) {
+            var lastW = layout.rows[layout.rows.length - 1].width;
+            var firstW = layout.rows[0].width;
+            if (firstW > 0) {
+                lastRowPenalty = Math.max(0, 1 - lastW / firstW) * 0.5;
+            }
+        }
+
+        return ratioPenalty * 3.0
+             + wastedFraction * 2.0
+             + rowVariance * 1.5
+             + lastRowPenalty * 1.0;
+    }
+
+    /**
+     * Find the best flow layout for a set of children by trying every
+     * possible first-row item count and picking the lowest-scoring layout.
+     *
+     * @param {Array} children - nodes with computed .size
+     * @returns {{ w: number, h: number, rows: Array }}
+     */
+    function computeFlowLayout(children) {
+        if (children.length === 0) {
+            return { w: 2 * PADDING, h: HEADER_HEIGHT + PADDING, rows: [] };
+        }
+        if (children.length === 1) {
+            return {
+                w: children[0].size.w + 2 * PADDING,
+                h: children[0].size.h + HEADER_HEIGHT + PADDING,
+                rows: [{ items: [children[0]], height: children[0].size.h, width: children[0].size.w }]
+            };
+        }
+
+        var bestLayout = null;
+        var bestScore = Infinity;
+
+        // Try target widths determined by fitting k items in the first row
+        for (var k = 1; k <= children.length; k++) {
+            var targetW = 2 * PADDING;
+            for (var i = 0; i < k; i++) {
+                targetW += children[i].size.w;
+                if (i > 0) targetW += GAP;
+            }
+
+            var layout = packRows(children, targetW);
+            var score = scoreLayout(layout);
+            if (score < bestScore) {
+                bestScore = score;
+                bestLayout = layout;
+            }
+        }
+
+        return bestLayout;
+    }
+
+    // =====================================================================
+    // Main
+    // =====================================================================
+
+    try {
+        log.header("Build Capability Map");
+        requireModel();
+
+        // 1. Collect all capabilities
+        var capabilities = $("capability");
+        if (capabilities.size() === 0) {
+            window.alert("No capabilities found in the current model.");
+            return;
+        }
+        log.info("Found " + capabilities.size() + " capabilities.");
+
+        // 2. Build element lookup
+        var elementMap = {};
+        capabilities.each(function (c) {
+            elementMap[c.id] = c;
+        });
+
+        // 3. Build parent-child tree from composition and aggregation relationships
+        var childrenMap = {};
+        var parentMap = {};
+
+        function addRelationship(rel) {
+            if (rel.source.type !== "capability" || rel.target.type !== "capability") return;
+            var pid = rel.source.id;
+            var cid = rel.target.id;
+            if (parentMap[cid]) return;
+            if (!childrenMap[pid]) childrenMap[pid] = [];
+            if (childrenMap[pid].indexOf(cid) === -1) {
+                childrenMap[pid].push(cid);
+                parentMap[cid] = pid;
+            }
+        }
+
+        $("composition-relationship").each(addRelationship);
+        $("aggregation-relationship").each(addRelationship);
+
+        // Sort children alphabetically for initial ordering
+        Object.keys(childrenMap).forEach(function (pid) {
+            childrenMap[pid].sort(function (a, b) {
+                return getName(elementMap[a]).localeCompare(getName(elementMap[b]));
+            });
+        });
+
+        // 4. Find root capabilities (not composed/aggregated by another capability)
+        var roots = [];
+        capabilities.each(function (c) {
+            if (!parentMap[c.id]) roots.push(c);
+        });
+        roots.sort(function (a, b) {
+            return getName(a).localeCompare(getName(b));
+        });
+
+        if (roots.length === 0) {
+            window.alert("No root capabilities found. All capabilities have a parent — check for circular composition relationships.");
+            return;
+        }
+        log.info("Found " + roots.length + " root capabilities.");
+
+        // 5. Build tree structure with cycle prevention
+        var visited = {};
+
+        function buildTree(element) {
+            if (visited[element.id]) return null;
+            visited[element.id] = true;
+
+            var children = (childrenMap[element.id] || [])
+                .filter(function (cid) { return elementMap[cid] && !visited[cid]; })
+                .map(function (cid) { return buildTree(elementMap[cid]); })
+                .filter(function (n) { return n !== null; });
+
+            return {
+                element: element,
+                children: children,
+                isLeaf: children.length === 0,
+                size: null,
+                rows: []
+            };
+        }
+
+        var trees = roots.map(function (r) { return buildTree(r); })
+            .filter(function (t) { return t !== null; });
+
+        // 6. Calculate uniform leaf size based on maximum label width
+        var maxLeafTextWidth = 0;
+
+        function findMaxLeafWidth(node) {
+            if (node.isLeaf) {
+                var tw = measureTextWidth(getName(node.element));
+                if (tw > maxLeafTextWidth) maxLeafTextWidth = tw;
+                return;
+            }
+            node.children.forEach(findMaxLeafWidth);
+        }
+
+        trees.forEach(findMaxLeafWidth);
+
+        var leafWidth = Math.max(MIN_LEAF_WIDTH, Math.min(maxLeafTextWidth + 2 * PADDING + 10, MAX_LEAF_WIDTH));
+        var leafHeight = LEAF_HEIGHT;
+        log.detail("  Leaf size: " + leafWidth + " x " + leafHeight);
+
+        // 7. Calculate node sizes bottom-up using adaptive flow layout
+        function calculateSize(node) {
+            if (node.isLeaf) {
+                node.size = { w: leafWidth, h: leafHeight };
+                node.rows = [];
+                return;
+            }
+
+            // Compute child sizes first
+            node.children.forEach(calculateSize);
+
+            // Sort: subtrees first (alphabetical), then leaves (alphabetical)
+            // This clusters similarly-sized items for tighter row packing
+            node.children.sort(function (a, b) {
+                if (a.isLeaf !== b.isLeaf) return a.isLeaf ? 1 : -1;
+                return getName(a.element).localeCompare(getName(b.element));
+            });
+
+            // Find optimal flow layout
+            var layout = computeFlowLayout(node.children);
+            node.size = { w: layout.w, h: layout.h };
+            node.rows = layout.rows;
+        }
+
+        trees.forEach(calculateSize);
+
+        // 8. Create the view
+        var view = model.createArchimateView("Business Capability Map");
+        log.info("Created view: Business Capability Map");
+
+        // 9. Layout and add elements to the view
+        //    Root elements are added directly to the view.
+        //    Children are added to the view first, then moved into their parent
+        //    using the jArchi 1.10+ add(object, x, y) nesting API.
+        function addNode(node, parentObj, relX, relY, depth) {
+            var diagObj;
+            if (parentObj) {
+                diagObj = view.add(node.element, 0, 0, node.size.w, node.size.h);
+                parentObj.add(diagObj, relX, relY);
+            } else {
+                diagObj = view.add(node.element, relX, relY, node.size.w, node.size.h);
+            }
+
+            // Color by depth: leaves get light grey, others get depth-based pastel
+            if (node.isLeaf) {
+                diagObj.fillColor = LEAF_COLOR;
+            } else {
+                diagObj.fillColor = DEPTH_COLORS[Math.min(depth, DEPTH_COLORS.length - 1)];
+            }
+
+            // Center text on leaves; top-align on parents so label doesn't overlap children
+            diagObj.textAlignment = 2; // CENTER
+            if (!node.isLeaf) {
+                try { diagObj.textPosition = 0; } catch (e) { /* property may not exist */ }
+            } else {
+                try { diagObj.textPosition = 1; } catch (e) { /* property may not exist */ }
+            }
+
+            // Position children row by row
+            if (!node.isLeaf) {
+                var y = HEADER_HEIGHT;
+                for (var r = 0; r < node.rows.length; r++) {
+                    var row = node.rows[r];
+                    var x = PADDING;
+                    for (var i = 0; i < row.items.length; i++) {
+                        var child = row.items[i];
+                        // Center child vertically within its row
+                        var cy = y + Math.floor((row.height - child.size.h) / 2);
+                        addNode(child, diagObj, x, cy, depth + 1);
+                        x += child.size.w + GAP;
+                    }
+                    y += row.height + GAP;
+                }
+            }
+
+            return diagObj;
+        }
+
+        // Arrange root trees horizontally
+        var cursorX = VIEW_MARGIN;
+        trees.forEach(function (tree) {
+            addNode(tree, null, cursorX, VIEW_MARGIN, 0);
+            cursorX += tree.size.w + ROOT_GAP;
+        });
+
+        // 10. Open the view
+        view.openInUI();
+
+        log.success("Build Capability Map complete. " + capabilities.size() + " capabilities in " + roots.length + " root trees.");
+    } catch (error) {
+        log.error("Script failed: " + error.toString());
+        if (error.stack) log.error(error.stack);
+        window.alert("Error: " + error.message);
+    }
+})();

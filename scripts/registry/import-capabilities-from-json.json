@@ -1,0 +1,28 @@
+{
+  "id": "utilities.import_capabilities_from_json",
+  "title": "Import Capabilities from JSON",
+  "category": ["Utilities"],
+  "order": 30,
+
+  "script": {
+    "path": "Import Capabilities from JSON.ajs"
+  },
+
+  "description": "Reads a JSON object from the clipboard and creates ArchiMate business capability elements with composition relationships. Auto-detects the JSON schema: nested trees, flat lists with parent references, or simple name/description lists.",
+  "tags": ["import", "json", "clipboard", "business-capability", "hierarchy", "capabilities"],
+
+  "help": {
+    "markdown_path": ""
+  },
+
+  "run": {
+    "danger_level": "high",
+    "confirm_message": "This will create new business capability elements and composition relationships from JSON in the clipboard."
+  },
+
+  "selection": {
+    "types": [],
+    "min": 0,
+    "require_view": false
+  }
+}
