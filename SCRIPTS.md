@@ -13,7 +13,7 @@ All scripts are located in `scripts/` and can be launched from the **Menu** (`Me
 | Script | Description |
 |--------|-------------|
 | **ELK Layout** | Automatic graph layout using the ELK (Eclipse Layout Kernel) engine. Provides a comprehensive options dialog for configuring layout algorithm, spacing, edge routing, port constraints, and more. Applies computed positions and bendpoints back to the active ArchiMate view. |
-| **Build Capability Map** | Finds all capabilities in the model and creates a hierarchical map view. Builds a tree from composition/aggregation relationships, lays out children in symmetric grids, and uses uniform leaf sizes based on the longest label. |
+| **Build Capability Map** | Finds all capabilities in the model and creates a hierarchical map view with a configuration dialog. Options include max depth limiting, per-level color pickers, leaf sizing, spacing, sort mode, and view naming. Builds a tree from composition/aggregation relationships and uses an adaptive flow layout with uniform leaf sizes. |
 
 ## Analysis
 

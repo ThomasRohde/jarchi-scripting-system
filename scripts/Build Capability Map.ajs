@@ -4,7 +4,8 @@
  * Uses an adaptive flow layout that packs children in rows, trying multiple target widths
  * and picking the best layout to minimize whitespace. All leaf capabilities have uniform
  * size based on the longest label. Subtrees are grouped before leaves for tighter packing.
- * @version 1.1.0
+ * Shows a configuration dialog for layout, sizing, colors, and depth limiting.
+ * @version 2.0.0
  * @author Thomas Rohde
  * @lastModifiedDate 2026-02-23
  */
@@ -14,35 +15,19 @@ console.show();
 
 load(__DIR__ + "lib/log.js");
 load(__DIR__ + "lib/requireModel.js");
+load(__DIR__ + "lib/swtImports.js");
+load(__DIR__ + "lib/capabilityMapDialog.js");
 
 (function () {
     "use strict";
 
     // =====================================================================
-    // Layout constants
+    // Fixed layout constants (not user-configurable)
     // =====================================================================
-    var PADDING = 12;
     var HEADER_HEIGHT = 30;
-    var GAP = 8;
-    var MIN_LEAF_WIDTH = 120;
-    var MAX_LEAF_WIDTH = 200;
-    var LEAF_HEIGHT = 45;
     var ROOT_GAP = 30;
     var VIEW_MARGIN = 20;
     var TARGET_ASPECT_RATIO = 1.6; // slightly wider than tall
-
-    // =====================================================================
-    // Depth-based color palette (light pastels for business documents)
-    // =====================================================================
-    var LEAF_COLOR = "#E8E8E8";
-    var DEPTH_COLORS = [
-        "#D6E4F0", // Level 0: light blue
-        "#D9EAD3", // Level 1: light green
-        "#E1D5E7", // Level 2: light lavender
-        "#FCE5CD", // Level 3: light peach
-        "#FFF2CC", // Level 4: light yellow
-        "#F4CCCC"  // Level 5+: light pink
-    ];
 
     // =====================================================================
     // Java types for text measurement
@@ -86,17 +71,18 @@ load(__DIR__ + "lib/requireModel.js");
      *
      * @param {Array} children - nodes with .size.w and .size.h
      * @param {number} targetWidth - total container width including padding
+     * @param {Object} options - layout options with gap and padding
      * @returns {{ w: number, h: number, rows: Array }}
      */
-    function packRows(children, targetWidth) {
-        var contentWidth = targetWidth - 2 * PADDING;
+    function packRows(children, targetWidth, options) {
+        var contentWidth = targetWidth - 2 * options.padding;
         var rows = [];
         var currentRow = [];
         var currentRowWidth = 0;
 
         for (var i = 0; i < children.length; i++) {
             var child = children[i];
-            var needed = currentRow.length > 0 ? GAP + child.size.w : child.size.w;
+            var needed = currentRow.length > 0 ? options.gap + child.size.w : child.size.w;
 
             if (currentRow.length > 0 && currentRowWidth + needed > contentWidth) {
                 rows.push(currentRow);
@@ -119,19 +105,19 @@ load(__DIR__ + "lib/requireModel.js");
             var rowWidth = 0;
             var rowHeight = 0;
             for (var j = 0; j < row.length; j++) {
-                if (j > 0) rowWidth += GAP;
+                if (j > 0) rowWidth += options.gap;
                 rowWidth += row[j].size.w;
                 if (row[j].size.h > rowHeight) rowHeight = row[j].size.h;
             }
             if (rowWidth > maxRowWidth) maxRowWidth = rowWidth;
-            if (r > 0) totalHeight += GAP;
+            if (r > 0) totalHeight += options.gap;
             totalHeight += rowHeight;
             rowMeta.push({ items: row, height: rowHeight, width: rowWidth });
         }
 
         return {
-            w: maxRowWidth + 2 * PADDING,
-            h: totalHeight + PADDING,
+            w: maxRowWidth + 2 * options.padding,
+            h: totalHeight + options.padding,
             rows: rowMeta
         };
     }
@@ -140,7 +126,7 @@ load(__DIR__ + "lib/requireModel.js");
      * Score a layout — lower is better.
      * Balances aspect ratio, wasted space, row uniformity, and last-row fill.
      */
-    function scoreLayout(layout) {
+    function scoreLayout(layout, options) {
         if (layout.rows.length === 0) return Infinity;
 
         // Aspect ratio: prefer close to target
@@ -159,7 +145,7 @@ load(__DIR__ + "lib/requireModel.js");
         var wastedFraction = 1 - totalChildArea / containerArea;
 
         // Row width balance — penalize rows much narrower than the widest
-        var maxW = layout.w - 2 * PADDING;
+        var maxW = layout.w - 2 * options.padding;
         var varianceSum = 0;
         for (var r2 = 0; r2 < layout.rows.length; r2++) {
             var fill = maxW > 0 ? layout.rows[r2].width / maxW : 1;
@@ -188,16 +174,17 @@ load(__DIR__ + "lib/requireModel.js");
      * possible first-row item count and picking the lowest-scoring layout.
      *
      * @param {Array} children - nodes with computed .size
+     * @param {Object} options - layout options
      * @returns {{ w: number, h: number, rows: Array }}
      */
-    function computeFlowLayout(children) {
+    function computeFlowLayout(children, options) {
         if (children.length === 0) {
-            return { w: 2 * PADDING, h: HEADER_HEIGHT + PADDING, rows: [] };
+            return { w: 2 * options.padding, h: HEADER_HEIGHT + options.padding, rows: [] };
         }
         if (children.length === 1) {
             return {
-                w: children[0].size.w + 2 * PADDING,
-                h: children[0].size.h + HEADER_HEIGHT + PADDING,
+                w: children[0].size.w + 2 * options.padding,
+                h: children[0].size.h + HEADER_HEIGHT + options.padding,
                 rows: [{ items: [children[0]], height: children[0].size.h, width: children[0].size.w }]
             };
         }
@@ -207,14 +194,14 @@ load(__DIR__ + "lib/requireModel.js");
 
         // Try target widths determined by fitting k items in the first row
         for (var k = 1; k <= children.length; k++) {
-            var targetW = 2 * PADDING;
+            var targetW = 2 * options.padding;
             for (var i = 0; i < k; i++) {
                 targetW += children[i].size.w;
-                if (i > 0) targetW += GAP;
+                if (i > 0) targetW += options.gap;
             }
 
-            var layout = packRows(children, targetW);
-            var score = scoreLayout(layout);
+            var layout = packRows(children, targetW, options);
+            var score = scoreLayout(layout, options);
             if (score < bestScore) {
                 bestScore = score;
                 bestLayout = layout;
@@ -311,58 +298,105 @@ load(__DIR__ + "lib/requireModel.js");
         var trees = roots.map(function (r) { return buildTree(r); })
             .filter(function (t) { return t !== null; });
 
-        // 6. Calculate uniform leaf size based on maximum label width
+        // 6. Compute maxDepth from the tree
+        function computeMaxDepth(node, depth) {
+            if (node.children.length === 0) return depth;
+            var max = depth;
+            for (var i = 0; i < node.children.length; i++) {
+                var childDepth = computeMaxDepth(node.children[i], depth + 1);
+                if (childDepth > max) max = childDepth;
+            }
+            return max;
+        }
+
+        var treeMaxDepth = 0;
+        for (var t = 0; t < trees.length; t++) {
+            var d = computeMaxDepth(trees[t], 0);
+            if (d > treeMaxDepth) treeMaxDepth = d;
+        }
+
+        // 7. Show configuration dialog
+        var options = showCapabilityMapDialog(shell, treeMaxDepth, capabilities.size());
+        if (!options) {
+            log.info("Cancelled by user.");
+            return;
+        }
+
+        log.info("Options: maxDepth=" + (options.maxDepth === -1 ? "All" : options.maxDepth)
+            + ", sort=" + options.sortMode
+            + ", gap=" + options.gap + ", padding=" + options.padding);
+
+        // 8. Calculate uniform leaf size based on maximum label width
         var maxLeafTextWidth = 0;
 
-        function findMaxLeafWidth(node) {
-            if (node.isLeaf) {
+        function findMaxLeafWidth(node, depth) {
+            // Treat as leaf if at depth limit or actually a leaf
+            var isEffectiveLeaf = node.isLeaf ||
+                (options.maxDepth !== -1 && depth >= options.maxDepth);
+
+            if (isEffectiveLeaf) {
                 var tw = measureTextWidth(getName(node.element));
                 if (tw > maxLeafTextWidth) maxLeafTextWidth = tw;
                 return;
             }
-            node.children.forEach(findMaxLeafWidth);
+            for (var i = 0; i < node.children.length; i++) {
+                findMaxLeafWidth(node.children[i], depth + 1);
+            }
         }
 
-        trees.forEach(findMaxLeafWidth);
+        trees.forEach(function (tree) { findMaxLeafWidth(tree, 0); });
 
-        var leafWidth = Math.max(MIN_LEAF_WIDTH, Math.min(maxLeafTextWidth + 2 * PADDING + 10, MAX_LEAF_WIDTH));
-        var leafHeight = LEAF_HEIGHT;
+        var leafWidth = Math.max(options.minLeafWidth, Math.min(maxLeafTextWidth + 2 * options.padding + 10, options.maxLeafWidth));
+        var leafHeight = options.leafHeight;
         log.detail("  Leaf size: " + leafWidth + " x " + leafHeight);
 
-        // 7. Calculate node sizes bottom-up using adaptive flow layout
-        function calculateSize(node) {
-            if (node.isLeaf) {
+        // 9. Calculate node sizes bottom-up using adaptive flow layout
+        function calculateSize(node, depth) {
+            // Treat as leaf if at depth limit or actually a leaf
+            var isEffectiveLeaf = node.isLeaf ||
+                (options.maxDepth !== -1 && depth >= options.maxDepth);
+
+            if (isEffectiveLeaf) {
                 node.size = { w: leafWidth, h: leafHeight };
                 node.rows = [];
+                node._effectiveLeaf = true;
                 return;
             }
 
-            // Compute child sizes first
-            node.children.forEach(calculateSize);
+            node._effectiveLeaf = false;
 
-            // Sort: subtrees first (alphabetical), then leaves (alphabetical)
-            // This clusters similarly-sized items for tighter row packing
-            node.children.sort(function (a, b) {
-                if (a.isLeaf !== b.isLeaf) return a.isLeaf ? 1 : -1;
-                return getName(a.element).localeCompare(getName(b.element));
-            });
+            // Compute child sizes first
+            for (var i = 0; i < node.children.length; i++) {
+                calculateSize(node.children[i], depth + 1);
+            }
+
+            // Sort children based on user preference
+            if (options.sortMode === "subtrees") {
+                // Subtrees first (alphabetical), then leaves (alphabetical)
+                node.children.sort(function (a, b) {
+                    if (a._effectiveLeaf !== b._effectiveLeaf) return a._effectiveLeaf ? 1 : -1;
+                    return getName(a.element).localeCompare(getName(b.element));
+                });
+            } else {
+                // Pure alphabetical
+                node.children.sort(function (a, b) {
+                    return getName(a.element).localeCompare(getName(b.element));
+                });
+            }
 
             // Find optimal flow layout
-            var layout = computeFlowLayout(node.children);
+            var layout = computeFlowLayout(node.children, options);
             node.size = { w: layout.w, h: layout.h };
             node.rows = layout.rows;
         }
 
-        trees.forEach(calculateSize);
+        trees.forEach(function (tree) { calculateSize(tree, 0); });
 
-        // 8. Create the view
-        var view = model.createArchimateView("Business Capability Map");
-        log.info("Created view: Business Capability Map");
+        // 10. Create the view
+        var view = model.createArchimateView(options.viewName);
+        log.info("Created view: " + options.viewName);
 
-        // 9. Layout and add elements to the view
-        //    Root elements are added directly to the view.
-        //    Children are added to the view first, then moved into their parent
-        //    using the jArchi 1.10+ add(object, x, y) nesting API.
+        // 11. Layout and add elements to the view
         function addNode(node, parentObj, relX, relY, depth) {
             var diagObj;
             if (parentObj) {
@@ -372,35 +406,36 @@ load(__DIR__ + "lib/requireModel.js");
                 diagObj = view.add(node.element, relX, relY, node.size.w, node.size.h);
             }
 
-            // Color by depth: leaves get light grey, others get depth-based pastel
-            if (node.isLeaf) {
-                diagObj.fillColor = LEAF_COLOR;
+            // Color by depth: effective leaves get leaf color, others get depth-based color
+            if (node._effectiveLeaf) {
+                diagObj.fillColor = options.leafColor;
             } else {
-                diagObj.fillColor = DEPTH_COLORS[Math.min(depth, DEPTH_COLORS.length - 1)];
+                var colorIdx = Math.min(depth, options.depthColors.length - 1);
+                diagObj.fillColor = options.depthColors[colorIdx];
             }
 
             // Center text on leaves; top-align on parents so label doesn't overlap children
             diagObj.textAlignment = 2; // CENTER
-            if (!node.isLeaf) {
+            if (!node._effectiveLeaf) {
                 try { diagObj.textPosition = 0; } catch (e) { /* property may not exist */ }
             } else {
                 try { diagObj.textPosition = 1; } catch (e) { /* property may not exist */ }
             }
 
             // Position children row by row
-            if (!node.isLeaf) {
+            if (!node._effectiveLeaf) {
                 var y = HEADER_HEIGHT;
                 for (var r = 0; r < node.rows.length; r++) {
                     var row = node.rows[r];
-                    var x = PADDING;
+                    var x = options.padding;
                     for (var i = 0; i < row.items.length; i++) {
                         var child = row.items[i];
                         // Center child vertically within its row
                         var cy = y + Math.floor((row.height - child.size.h) / 2);
                         addNode(child, diagObj, x, cy, depth + 1);
-                        x += child.size.w + GAP;
+                        x += child.size.w + options.gap;
                     }
-                    y += row.height + GAP;
+                    y += row.height + options.gap;
                 }
             }
 
@@ -414,7 +449,7 @@ load(__DIR__ + "lib/requireModel.js");
             cursorX += tree.size.w + ROOT_GAP;
         });
 
-        // 10. Open the view
+        // 12. Open the view
         view.openInUI();
 
         log.success("Build Capability Map complete. " + capabilities.size() + " capabilities in " + roots.length + " root trees.");
