@@ -297,6 +297,8 @@
      * @param {Object} plan - The plan object (modified in place)
      * @returns {Object} The same plan object, normalized
      */
+    var MIN_DIMENSION = 10;
+
     function normalizeActions(plan) {
         if (!plan || !Array.isArray(plan.actions)) return plan;
 
@@ -313,6 +315,16 @@
                 var key = keys[k];
                 if (allowedFields.indexOf(key) === -1 && action[key] !== null) {
                     action[key] = null;
+                }
+            }
+
+            // Clamp undersized dimensions on add_to_view actions
+            if (action.op === "add_to_view") {
+                if (typeof action.width === "number" && action.width < MIN_DIMENSION) {
+                    action.width = null; // let executor apply default
+                }
+                if (typeof action.height === "number" && action.height < MIN_DIMENSION) {
+                    action.height = null; // let executor apply default
                 }
             }
         }
