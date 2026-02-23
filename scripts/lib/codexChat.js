@@ -148,10 +148,19 @@
                 .replace(/"/g, "&quot;");
         }
 
+        function sanitizeHtml(html) {
+            return String(html)
+                .replace(/<script[\s>][\s\S]*?<\/script>/gi, "")
+                .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "")
+                .replace(/\bon\w+\s*=\s*[^\s>]+/gi, "")
+                .replace(/href\s*=\s*["']javascript:[^"']*["']/gi, 'href="#"')
+                .replace(/src\s*=\s*["']javascript:[^"']*["']/gi, 'src=""');
+        }
+
         function renderMarkdown(text) {
             if (typeof marked !== "undefined" && marked.parse) {
                 try {
-                    return marked.parse(text);
+                    return sanitizeHtml(marked.parse(text));
                 } catch (e) {
                     return "<pre>" + htmlEscape(text) + "</pre>";
                 }
@@ -696,6 +705,7 @@
 
             try {
                 var result = codexClient.ask(state.threadId, prompt, {
+                    effort: state.currentEffort,
                     onDelta: function (delta) {
                         appendRaw(delta);
                     },
@@ -714,6 +724,8 @@
                         var entry = result.items[i];
                         if (entry.event === "completed" && entry.item) {
                             var item = entry.item;
+                            if (item.type === "userMessage") continue;
+                            if (item.role === "user") continue;
                             if (item.content && Array.isArray(item.content)) {
                                 for (var c = 0; c < item.content.length; c++) {
                                     if (item.content[c].text) {
@@ -726,13 +738,22 @@
                     if (itemText) appendRaw(itemText);
                 }
 
+                // Finalize streaming display
                 if (useBrowser) {
                     browserFinalizeStreaming();
                 } else {
                     appendRaw("\n\n");
                 }
 
-                state.turnCount++;
+                // Surface failed/interrupted turns
+                if (result.status === "failed") {
+                    var errMsg = (result.error && result.error.message) ? result.error.message : "Turn failed";
+                    appendChat("[Error]", errMsg);
+                } else if (result.status === "interrupted") {
+                    appendChat("[System]", "Turn was interrupted.");
+                } else {
+                    state.turnCount++;
+                }
             } catch (e) {
                 if (useBrowser) {
                     browserFinalizeStreaming();
@@ -785,6 +806,7 @@
 
                 var planResult = codexClient.askPlan(state.threadId, args, {
                     context: context,
+                    effort: state.currentEffort,
                     timeout: 900000, // 15 minutes for plan generation
                     onDelta: function () {
                         // Don't show raw JSON deltas — keep the thinking animation

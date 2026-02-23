@@ -270,9 +270,9 @@
                 return msg.result;
             }
 
-            // Server-initiated request (has both method and id) — auto-accept
+            // Server-initiated request (has both method and id) — handle inline
             if (msg.method && msg.id !== undefined) {
-                _autoAccept(msg);
+                _handleServerRequest(msg);
                 continue;
             }
 
@@ -294,13 +294,26 @@
     }
 
     /**
-     * Auto-accept a server-initiated approval request.
+     * Handle a server-initiated request by dispatching on method.
+     * - Approval requests → accept
+     * - item/tool/call → decline (not supported)
+     * - Other → JSON-RPC method-not-found error
      */
-    function _autoAccept(msg) {
-        wsSend({
-            id: msg.id,
-            result: { decision: "accept" }
-        });
+    function _handleServerRequest(msg) {
+        var method = msg.method || "";
+        if (method.indexOf("requestApproval") >= 0) {
+            wsSend({ id: msg.id, result: { decision: "accept" } });
+        } else if (method === "item/tool/call") {
+            wsSend({
+                id: msg.id,
+                result: { contentItems: [{ type: "inputText", text: "Not supported" }], success: false }
+            });
+        } else {
+            wsSend({
+                id: msg.id,
+                error: { code: -32601, message: "Method not found: " + method }
+            });
+        }
     }
 
     // ── Turn collection ─────────────────────────────────────────────────
@@ -325,8 +338,8 @@
         for (var b = 0; b < buffered.length; b++) {
             var handled = _processTurnNotification(buffered[b], turnId, textParts, items, onDelta);
             if (handled === "done") {
-                status = _extractStatus(buffered[b]);
-                return { text: textParts.join(""), turnId: turnId, status: status, items: items };
+                var turnResult = _extractTurnResult(buffered[b]);
+                return { text: textParts.join(""), turnId: turnId, status: turnResult.status, error: turnResult.error, items: items };
             }
         }
 
@@ -336,16 +349,16 @@
             if (remaining <= 0) throw new Error("codexClient: turn timed out after " + timeout + "ms");
             var msg = pollParsed(remaining);
 
-            // Server-initiated request — auto-accept inline
+            // Server-initiated request — handle inline
             if (msg.method && msg.id !== undefined) {
-                _autoAccept(msg);
+                _handleServerRequest(msg);
                 continue;
             }
 
             var result = _processTurnNotification(msg, turnId, textParts, items, onDelta);
             if (result === "done") {
-                status = _extractStatus(msg);
-                return { text: textParts.join(""), turnId: turnId, status: status, items: items };
+                var turnResult = _extractTurnResult(msg);
+                return { text: textParts.join(""), turnId: turnId, status: turnResult.status, error: turnResult.error, items: items };
             }
         }
     }
@@ -355,6 +368,7 @@
      */
     function _processTurnNotification(msg, turnId, textParts, items, onDelta) {
         if (!msg.method || !msg.params) return;
+        if (turnId && msg.params.turnId && msg.params.turnId !== turnId) return;
 
         switch (msg.method) {
             case "item/agentMessage/delta":
@@ -378,13 +392,15 @@
     }
 
     /**
-     * Extract status from a turn/completed notification.
+     * Extract status and error from a turn/completed notification.
      */
-    function _extractStatus(msg) {
-        if (msg.params && msg.params.turn && msg.params.turn.status) {
-            return msg.params.turn.status;
+    function _extractTurnResult(msg) {
+        var result = { status: "completed", error: null };
+        if (msg.params && msg.params.turn) {
+            if (msg.params.turn.status) result.status = msg.params.turn.status;
+            if (msg.params.turn.error) result.error = msg.params.turn.error;
         }
-        return "completed";
+        return result;
     }
 
     // ── Non-blocking turn execution ─────────────────────────────────────
@@ -413,6 +429,7 @@
             input: [{ type: "text", text: text }]
         };
         if (options.outputSchema) turnParams.outputSchema = options.outputSchema;
+        if (options.effort) turnParams.effort = options.effort;
 
         // Send turn/start request (non-blocking send)
         var reqId = nextId++;
@@ -446,9 +463,9 @@
                 break;
             }
 
-            // Auto-accept server-initiated requests
+            // Handle server-initiated requests
             if (msg.method && msg.id !== undefined) {
-                _autoAccept(msg);
+                _handleServerRequest(msg);
                 continue;
             }
 
@@ -465,7 +482,8 @@
         for (var b = 0; b < buffered.length; b++) {
             var handled = _processTurnNotification(buffered[b], turnId, textParts, items, onDelta);
             if (handled === "done") {
-                return { text: textParts.join(""), turnId: turnId, status: _extractStatus(buffered[b]), items: items };
+                var turnResult = _extractTurnResult(buffered[b]);
+                return { text: textParts.join(""), turnId: turnId, status: turnResult.status, error: turnResult.error, items: items };
             }
         }
 
@@ -482,16 +500,17 @@
                 continue;
             }
 
-            // Auto-accept
+            // Handle server-initiated requests
             if (msg2.method && msg2.id !== undefined) {
-                _autoAccept(msg2);
+                _handleServerRequest(msg2);
                 if (onPoll) onPoll();
                 continue;
             }
 
             var result = _processTurnNotification(msg2, turnId, textParts, items, onDelta);
             if (result === "done") {
-                return { text: textParts.join(""), turnId: turnId, status: _extractStatus(msg2), items: items };
+                var turnResult = _extractTurnResult(msg2);
+                return { text: textParts.join(""), turnId: turnId, status: turnResult.status, error: turnResult.error, items: items };
             }
             if (onPoll) onPoll();
         }
@@ -565,13 +584,19 @@
         connected = true;
 
         // JSON-RPC initialize handshake
-        var initResult = _sendRequest("initialize", {
-            clientInfo: {
-                name: DEFAULTS.clientName,
-                title: "JArchi Codex Client",
-                version: DEFAULTS.clientVersion
-            }
-        }, timeout);
+        var initResult;
+        try {
+            initResult = _sendRequest("initialize", {
+                clientInfo: {
+                    name: DEFAULTS.clientName,
+                    title: "JArchi Codex Client",
+                    version: DEFAULTS.clientVersion
+                }
+            }, timeout);
+        } catch (initErr) {
+            disconnect();
+            throw initErr;
+        }
 
         _sendNotification("initialized");
 
@@ -664,6 +689,9 @@
 
         if (options.outputSchema) {
             turnParams.outputSchema = options.outputSchema;
+        }
+        if (options.effort) {
+            turnParams.effort = options.effort;
         }
 
         var result = _sendRequest("turn/start", turnParams);
@@ -1206,7 +1234,8 @@
             outputSchema: _OUTPUT_SCHEMA,
             timeout: options.timeout,
             onDelta: options.onDelta,
-            onPoll: options.onPoll
+            onPoll: options.onPoll,
+            effort: options.effort
         });
 
         // Collect text from all possible sources
