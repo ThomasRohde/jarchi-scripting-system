@@ -352,19 +352,16 @@
                     });
 
                     // --- Right panel: Configuration ---
-                    var container = new Composite(sash, SWT.NONE);
-                    GridLayoutFactory.fillDefaults().numColumns(2).margins(10, 10).spacing(12, 10).applyTo(container);
+                    // Layout: General spanning full width on top,
+                    // then Colors (left) beside Leaf Size / Spacing / Display (right)
+                    var configPanel = new Composite(sash, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(10, 10).spacing(12, 10).applyTo(configPanel);
 
-                    // --- Left config column ---
-                    var leftCol = new Composite(container, SWT.NONE);
-                    GridLayoutFactory.fillDefaults().numColumns(1).spacing(0, 10).applyTo(leftCol);
-                    GridDataFactory.fillDefaults().grab(true, true).align(SWT.FILL, SWT.FILL).applyTo(leftCol);
-
-                    // === General ===
-                    var generalGroup = new Group(leftCol, SWT.NONE);
+                    // === General (spans both columns) ===
+                    var generalGroup = new Group(configPanel, SWT.NONE);
                     generalGroup.setText("General");
                     GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 8).spacing(8, 6).applyTo(generalGroup);
-                    GridDataFactory.fillDefaults().grab(true, false).applyTo(generalGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(generalGroup);
 
                     var nameLabel = new Label(generalGroup, SWT.NONE);
                     nameLabel.setText("View name:");
@@ -388,11 +385,11 @@
 
                     w.sortCombo = createLabeledCombo(generalGroup, "Sort children:", SORT_MODES, 0);
 
-                    // === Colors ===
-                    var colorGroup = new Group(leftCol, SWT.NONE);
+                    // === Colors (left of bottom row) ===
+                    var colorGroup = new Group(configPanel, SWT.NONE);
                     colorGroup.setText("Colors");
                     GridLayoutFactory.fillDefaults().numColumns(3).margins(8, 8).spacing(8, 6).applyTo(colorGroup);
-                    GridDataFactory.fillDefaults().grab(true, true).applyTo(colorGroup);
+                    GridDataFactory.fillDefaults().grab(false, true).align(SWT.FILL, SWT.BEGINNING).applyTo(colorGroup);
 
                     w.leafColorRow = createColorRow(colorGroup, "Leaf:", DEFAULTS.leafColor, display, allocatedColors);
 
@@ -403,22 +400,23 @@
                         w.depthColorRows.push(row);
                     }
 
-                    // --- Right config column ---
-                    var rightCol = new Composite(container, SWT.NONE);
-                    GridLayoutFactory.fillDefaults().numColumns(1).spacing(0, 10).applyTo(rightCol);
-                    GridDataFactory.fillDefaults().grab(false, false).align(SWT.FILL, SWT.BEGINNING).applyTo(rightCol);
+                    // === Right config column ===
+                    // Leaf Size spanning full width, then Spacing | Display side by side
+                    var rightCol = new Composite(configPanel, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).spacing(12, 10).applyTo(rightCol);
+                    GridDataFactory.fillDefaults().grab(true, false).align(SWT.FILL, SWT.BEGINNING).applyTo(rightCol);
 
-                    // === Leaf Size ===
+                    // === Leaf Size (spans both columns) ===
                     var leafGroup = new Group(rightCol, SWT.NONE);
                     leafGroup.setText("Leaf Size");
                     GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 8).spacing(8, 6).applyTo(leafGroup);
-                    GridDataFactory.fillDefaults().grab(true, false).applyTo(leafGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(leafGroup);
 
                     w.minLeafWidth = createLabeledSpinner(leafGroup, "Min width (px):", 50, 300, DEFAULTS.minLeafWidth, 10);
                     w.maxLeafWidth = createLabeledSpinner(leafGroup, "Max width (px):", 100, 500, DEFAULTS.maxLeafWidth, 10);
                     w.leafHeight = createLabeledSpinner(leafGroup, "Height (px):", 20, 150, DEFAULTS.leafHeight, 5);
 
-                    // === Spacing ===
+                    // === Spacing (left) ===
                     var spacingGroup = new Group(rightCol, SWT.NONE);
                     spacingGroup.setText("Spacing");
                     GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 8).spacing(8, 6).applyTo(spacingGroup);
@@ -427,7 +425,7 @@
                     w.gap = createLabeledSpinner(spacingGroup, "Element gap (px):", 2, 40, DEFAULTS.gap, 2);
                     w.padding = createLabeledSpinner(spacingGroup, "Container padding (px):", 4, 40, DEFAULTS.padding, 2);
 
-                    // === Display ===
+                    // === Display (right) ===
                     var displayGroup = new Group(rightCol, SWT.NONE);
                     displayGroup.setText("Display");
                     GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 8).spacing(8, 6).applyTo(displayGroup);
@@ -448,9 +446,7 @@
 
                 getInitialSize: function () {
                     var Point = swt.Point;
-                    var colorRowCount = maxDepth + 2; // levels + leaf
-                    var estimatedHeight = 500 + colorRowCount * 45;
-                    return new Point(1000, estimatedHeight);
+                    return new Point(1450, 800);
                 },
 
                 okPressed: function () {
