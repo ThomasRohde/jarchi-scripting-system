@@ -547,9 +547,9 @@
 
                     w.gap = createLabeledSpinner(spacingGroup, "Element gap (px):", 2, 40, DEFAULTS.gap, 2);
                     w.padding = createLabeledSpinner(spacingGroup, "Container padding (px):", 4, 40, DEFAULTS.padding, 2);
-                    w.headerHeight = createLabeledSpinner(spacingGroup, "Header height (px):", 20, 80, DEFAULTS.headerHeight, 5);
-                    w.rootGap = createLabeledSpinner(spacingGroup, "Root gap (px):", 5, 80, DEFAULTS.rootGap, 5);
-                    w.viewMargin = createLabeledSpinner(spacingGroup, "View margin (px):", 0, 60, DEFAULTS.viewMargin, 5);
+                    w.headerHeight = createLabeledSpinner(spacingGroup, "Header height (px):", 20, 200, DEFAULTS.headerHeight, 5);
+                    w.rootGap = createLabeledSpinner(spacingGroup, "Root gap (px):", 5, 500, DEFAULTS.rootGap, 10);
+                    w.viewMargin = createLabeledSpinner(spacingGroup, "View margin (px):", 0, 200, DEFAULTS.viewMargin, 5);
 
                     // Aspect ratio uses digits=1 so spinner value is x10 (e.g. 16 = 1.6)
                     var arLabel = new Label(spacingGroup, SWT.NONE);
