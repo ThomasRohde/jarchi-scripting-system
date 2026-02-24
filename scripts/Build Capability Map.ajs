@@ -651,6 +651,13 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
             // Show icon setting
             diagObj.showIcon = options.showIcon;
 
+            // Font settings
+            var font = node._effectiveLeaf ? options.leafFont : options.parentFont;
+            diagObj.fontName = font.name;
+            diagObj.fontSize = font.size;
+            if (font.style) diagObj.fontStyle = font.style;
+            if (font.color) diagObj.fontColor = font.color;
+
             // Center text on leaves; top-align on parents so label doesn't overlap children
             diagObj.textAlignment = 2; // CENTER
             if (!node._effectiveLeaf) {

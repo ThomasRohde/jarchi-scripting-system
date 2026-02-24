@@ -37,6 +37,10 @@
     var Spinner = Java.type("org.eclipse.swt.widgets.Spinner");
     var ColorDialog = Java.type("org.eclipse.swt.widgets.ColorDialog");
     var RGB = Java.type("org.eclipse.swt.graphics.RGB");
+    var FontDialog = Java.type("org.eclipse.swt.widgets.FontDialog");
+    var FontData = Java.type("org.eclipse.swt.graphics.FontData");
+    var Font = Java.type("org.eclipse.swt.graphics.Font");
+    var FontDataArray = Java.type("org.eclipse.swt.graphics.FontData[]");
 
 
     // =========================================================================
@@ -54,6 +58,8 @@
         padding: 12,
         showIcon: 2,            // 1 = ALWAYS, 2 = NEVER
         alignment: "center",
+        parentFont: { name: "Segoe UI", size: 9, style: "bold", color: null },
+        leafFont: { name: "Segoe UI", size: 9, style: "", color: null },
         leafColor: "#E8E8E8",
         depthColors: [
             "#D6E4F0", // Level 0: light blue
@@ -187,6 +193,104 @@
         });
 
         state.swatch = swatch;
+        return state;
+    }
+
+    /**
+     * Convert a font style string ("bold", "italic", "bold|italic", "") to SWT style bitmask.
+     */
+    function fontStyleToSWT(style) {
+        if (style === "bold") return SWT.BOLD;
+        if (style === "italic") return SWT.ITALIC;
+        if (style === "bold|italic") return Number(SWT.BOLD) | Number(SWT.ITALIC);
+        return SWT.NORMAL;
+    }
+
+    /**
+     * Build a human-readable description of a font state.
+     */
+    function fontDescription(state) {
+        var desc = state.name + ", " + state.size + "pt";
+        if (state.style === "bold") desc += ", Bold";
+        else if (state.style === "italic") desc += ", Italic";
+        else if (state.style === "bold|italic") desc += ", Bold Italic";
+        return desc;
+    }
+
+    /**
+     * Create a font picker row: Label | description text | "..." button.
+     * Opens the system FontDialog (with color) on click.
+     * @param {Object} parent - SWT Composite (3-column layout)
+     * @param {string} labelText - Label text (e.g., "Parent:")
+     * @param {Object} defaultFont - { name, size, style, color }
+     * @param {Object} display - SWT Display
+     * @param {Array} allocatedResources - Array to track Font/Color objects for disposal
+     * @returns {{ name, size, style, color }} - Mutable state object
+     */
+    function createFontRow(parent, labelText, defaultFont, display, allocatedResources) {
+        var state = { name: defaultFont.name, size: defaultFont.size, style: defaultFont.style, color: defaultFont.color };
+
+        var label = new Label(parent, SWT.NONE);
+        label.setText(labelText);
+        GridDataFactory.swtDefaults().applyTo(label);
+
+        var preview = new Label(parent, SWT.NONE);
+        GridDataFactory.fillDefaults().grab(true, false).applyTo(preview);
+
+        var btn = new Button(parent, SWT.PUSH);
+        btn.setText("...");
+        GridDataFactory.swtDefaults().hint(30, SWT.DEFAULT).applyTo(btn);
+
+        function updatePreview() {
+            preview.setText(fontDescription(state));
+            var font = new Font(display, new FontData(state.name, state.size, fontStyleToSWT(state.style)));
+            allocatedResources.push(font);
+            preview.setFont(font);
+            if (state.color) {
+                var color = hexToColor(display, state.color);
+                allocatedResources.push(color);
+                preview.setForeground(color);
+            } else {
+                preview.setForeground(null);
+            }
+        }
+
+        updatePreview();
+
+        btn.addSelectionListener({
+            widgetSelected: function () {
+                var dlg = new FontDialog(parent.getShell());
+                dlg.setText("Pick font for: " + labelText.replace(":", ""));
+
+                var fdArr = new FontDataArray(1);
+                fdArr[0] = new FontData(state.name, state.size, fontStyleToSWT(state.style));
+                dlg.setFontList(fdArr);
+
+                if (state.color) {
+                    var c = hexToRgb(state.color);
+                    dlg.setRGB(new RGB(c.r, c.g, c.b));
+                }
+
+                var result = dlg.open();
+                if (result) {
+                    state.name = "" + result.getName();
+                    state.size = result.getHeight();
+                    var s = Number(result.getStyle());
+                    if ((s & Number(SWT.BOLD)) !== 0 && (s & Number(SWT.ITALIC)) !== 0) state.style = "bold|italic";
+                    else if ((s & Number(SWT.BOLD)) !== 0) state.style = "bold";
+                    else if ((s & Number(SWT.ITALIC)) !== 0) state.style = "italic";
+                    else state.style = "";
+
+                    var rgb = dlg.getRGB();
+                    if (rgb) {
+                        state.color = rgbToHex(rgb.red, rgb.green, rgb.blue);
+                    }
+                    updatePreview();
+                }
+            },
+            widgetDefaultSelected: function () {}
+        });
+
         return state;
     }
 
@@ -407,20 +511,29 @@
                     }
 
                     // === Right config column ===
-                    // Leaf Size spanning full width, then Spacing | Display side by side
+                    // Leaf Size | Fonts on top, then Spacing | Display below
                     var rightCol = new Composite(configPanel, SWT.NONE);
                     GridLayoutFactory.fillDefaults().numColumns(2).spacing(12, 10).applyTo(rightCol);
                     GridDataFactory.fillDefaults().grab(true, false).align(SWT.FILL, SWT.BEGINNING).applyTo(rightCol);
 
-                    // === Leaf Size (spans both columns) ===
+                    // === Leaf Size (left) ===
                     var leafGroup = new Group(rightCol, SWT.NONE);
                     leafGroup.setText("Leaf Size");
                     GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 8).spacing(8, 6).applyTo(leafGroup);
-                    GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(leafGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(leafGroup);
 
                     w.minLeafWidth = createLabeledSpinner(leafGroup, "Min width (px):", 50, 300, DEFAULTS.minLeafWidth, 10);
                     w.maxLeafWidth = createLabeledSpinner(leafGroup, "Max width (px):", 100, 500, DEFAULTS.maxLeafWidth, 10);
                     w.leafHeight = createLabeledSpinner(leafGroup, "Height (px):", 20, 150, DEFAULTS.leafHeight, 5);
+
+                    // === Fonts (right, beside Leaf Size) ===
+                    var fontGroup = new Group(rightCol, SWT.NONE);
+                    fontGroup.setText("Fonts");
+                    GridLayoutFactory.fillDefaults().numColumns(3).margins(8, 8).spacing(8, 6).applyTo(fontGroup);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(fontGroup);
+
+                    w.parentFontRow = createFontRow(fontGroup, "Parent:", DEFAULTS.parentFont, display, allocatedColors);
+                    w.leafFontRow = createFontRow(fontGroup, "Leaf:", DEFAULTS.leafFont, display, allocatedColors);
 
                     // === Spacing (left) ===
                     var spacingGroup = new Group(rightCol, SWT.NONE);
@@ -529,6 +642,8 @@
                 return DEFAULTS.showIcon;
             })(),
             alignment: ALIGNMENT_OPTIONS[w.alignmentCombo.getSelectionIndex() >= 0 ? w.alignmentCombo.getSelectionIndex() : 1].id,
+            parentFont: { name: w.parentFontRow.name, size: w.parentFontRow.size, style: w.parentFontRow.style, color: w.parentFontRow.color },
+            leafFont: { name: w.leafFontRow.name, size: w.leafFontRow.size, style: w.leafFontRow.style, color: w.leafFontRow.color },
             leafColor: w.leafColorRow.hex,
             depthColors: depthColors,
             selectedRootIds: selectedRootIds
