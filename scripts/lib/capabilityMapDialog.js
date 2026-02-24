@@ -42,6 +42,11 @@
     var Font = Java.type("org.eclipse.swt.graphics.Font");
     var FontDataArray = Java.type("org.eclipse.swt.graphics.FontData[]");
 
+    // Java I/O for config persistence
+    var Files = Java.type("java.nio.file.Files");
+    var Paths = Java.type("java.nio.file.Paths");
+    var JString = Java.type("java.lang.String");
+
 
     // =========================================================================
     // Defaults
@@ -378,6 +383,59 @@
     }
 
     // =========================================================================
+    // Config persistence
+    // =========================================================================
+
+    function loadConfig(configPath) {
+        try {
+            var path = Paths.get(configPath);
+            if (Files.exists(path)) {
+                var bytes = Files.readAllBytes(path);
+                var content = "" + new JString(bytes, "UTF-8");
+                return JSON.parse(content);
+            }
+        } catch (e) { /* fall back to defaults */ }
+        return null;
+    }
+
+    function saveConfig(configPath, options) {
+        try {
+            var path = Paths.get(configPath);
+            Files.createDirectories(path.getParent());
+            var config = {};
+            Object.keys(options).forEach(function (key) {
+                if (key !== "selectedRootIds") config[key] = options[key];
+            });
+            var json = JSON.stringify(config, null, 2);
+            Files.write(path, new JString(json).getBytes("UTF-8"));
+        } catch (e) { /* ignore save errors */ }
+    }
+
+    /**
+     * Merge saved config over DEFAULTS. Returns a new object with saved values
+     * taking precedence, falling back to DEFAULTS for missing keys.
+     */
+    function mergeConfig(saved) {
+        if (!saved) return DEFAULTS;
+        var cfg = {};
+        Object.keys(DEFAULTS).forEach(function (key) {
+            cfg[key] = (saved.hasOwnProperty(key) && saved[key] !== null && saved[key] !== undefined)
+                ? saved[key] : DEFAULTS[key];
+        });
+        return cfg;
+    }
+
+    /**
+     * Find the index of an option by its id. Returns fallback if not found.
+     */
+    function findOptionIndex(options, id, fallback) {
+        for (var i = 0; i < options.length; i++) {
+            if (options[i].id === id) return i;
+        }
+        return fallback || 0;
+    }
+
+    // =========================================================================
     // Dialog
     // =========================================================================
 
@@ -388,9 +446,15 @@
      * @param {number} capabilityCount - Total number of capabilities found
      * @param {Array} trees - Array of root tree nodes (each with .element, .children)
      * @param {Function} getNameFn - Function to get display name for an element
+     * @param {string} [configPath] - Optional path to a JSON config file for persistence
      * @returns {Object|null} Options object (with .selectedRootIds), or null if cancelled
      */
-    function showCapabilityMapDialog(parentShell, maxDepth, capabilityCount, trees, getNameFn) {
+    function showCapabilityMapDialog(parentShell, maxDepth, capabilityCount, trees, getNameFn, configPath) {
+        // Load saved config and shadow module-level DEFAULTS so all widget
+        // initialization code automatically uses the persisted values.
+        var saved = configPath ? loadConfig(configPath) : null;
+        var DEFAULTS = mergeConfig(saved);
+
         var result = null;
         var w = {};
         var allocatedColors = [];
@@ -494,10 +558,11 @@
                     for (var d = 1; d <= maxDepth; d++) {
                         w.maxDepthCombo.add("" + d);
                     }
-                    w.maxDepthCombo.select(0);
+                    var savedDepthIdx = (DEFAULTS.maxDepth === -1 || DEFAULTS.maxDepth > maxDepth) ? 0 : DEFAULTS.maxDepth;
+                    w.maxDepthCombo.select(savedDepthIdx);
                     GridDataFactory.fillDefaults().grab(true, false).applyTo(w.maxDepthCombo);
 
-                    w.sortCombo = createLabeledCombo(generalGroup, "Sort children:", SORT_MODES, 0);
+                    w.sortCombo = createLabeledCombo(generalGroup, "Sort children:", SORT_MODES, findOptionIndex(SORT_MODES, DEFAULTS.sortMode, 0));
 
                     // === Colors (left of bottom row) ===
                     var colorGroup = new Group(configPanel, SWT.NONE);
@@ -612,6 +677,7 @@
                         return;
                     }
                     result = collectOptions(w);
+                    if (configPath) saveConfig(configPath, result);
                     Java.super(myDialog.dialog).okPressed();
                 }
             })

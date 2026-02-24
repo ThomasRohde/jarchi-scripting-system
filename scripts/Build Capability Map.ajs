@@ -503,7 +503,8 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
         }
 
         // 7. Show configuration dialog (with tree selector)
-        var options = showCapabilityMapDialog(shell, treeMaxDepth, capabilities.size(), trees, getName);
+        var configPath = __DIR__ + "config/capability-map.json";
+        var options = showCapabilityMapDialog(shell, treeMaxDepth, capabilities.size(), trees, getName, configPath);
         if (!options) {
             log.info("Cancelled by user.");
             return;

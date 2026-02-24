@@ -1,0 +1,35 @@
+{
+  "viewName": "Business Capability Map",
+  "maxDepth": -1,
+  "sortMode": "subtrees",
+  "minLeafWidth": 120,
+  "maxLeafWidth": 200,
+  "leafHeight": 45,
+  "gap": 8,
+  "padding": 12,
+  "headerHeight": 50,
+  "rootGap": 30,
+  "viewMargin": 20,
+  "aspectRatio": 1.6,
+  "showIcon": 2,
+  "alignment": "center",
+  "parentFont": {
+    "name": "Segoe UI",
+    "size": 11,
+    "style": "bold",
+    "color": "#000000"
+  },
+  "leafFont": {
+    "name": "Segoe UI",
+    "size": 9,
+    "style": "",
+    "color": null
+  },
+  "leafColor": "#E8E8E8",
+  "depthColors": [
+    "#D6E4F0",
+    "#D9EAD3",
+    "#E1D5E7",
+    "#FCE5CD"
+  ]
+}
