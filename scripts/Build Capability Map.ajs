@@ -22,13 +22,8 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
 (function () {
     "use strict";
 
-    // =====================================================================
-    // Fixed layout constants (not user-configurable)
-    // =====================================================================
-    var HEADER_HEIGHT = 40;
-    var ROOT_GAP = 30;
-    var VIEW_MARGIN = 20;
-    var TARGET_ASPECT_RATIO = 1.6; // slightly wider than tall
+    // Layout constants — set from dialog options after configuration
+    var HEADER_HEIGHT, ROOT_GAP, VIEW_MARGIN, TARGET_ASPECT_RATIO;
 
     // =====================================================================
     // Java types for text measurement
@@ -514,6 +509,12 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
             return;
         }
 
+        // Set layout constants from dialog options
+        HEADER_HEIGHT = options.headerHeight;
+        ROOT_GAP = options.rootGap;
+        VIEW_MARGIN = options.viewMargin;
+        TARGET_ASPECT_RATIO = options.aspectRatio;
+
         // 7b. Find selected nodes anywhere in the tree hierarchy.
         // Each checked item becomes a root in the map. If a checked item
         // is a descendant of another checked item, only the ancestor is used
@@ -543,7 +544,9 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
 
         log.info("Options: maxDepth=" + (options.maxDepth === -1 ? "All" : options.maxDepth)
             + ", sort=" + options.sortMode
-            + ", gap=" + options.gap + ", padding=" + options.padding);
+            + ", gap=" + options.gap + ", padding=" + options.padding
+            + ", headerHeight=" + HEADER_HEIGHT + ", rootGap=" + ROOT_GAP
+            + ", viewMargin=" + VIEW_MARGIN + ", aspectRatio=" + TARGET_ASPECT_RATIO);
 
         // 8. Calculate uniform leaf size based on maximum label width
         var maxLeafTextWidth = 0;

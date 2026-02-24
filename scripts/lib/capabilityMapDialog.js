@@ -56,6 +56,10 @@
         leafHeight: 45,
         gap: 8,
         padding: 12,
+        headerHeight: 40,
+        rootGap: 30,
+        viewMargin: 20,
+        aspectRatio: 1.6,
         showIcon: 2,            // 1 = ALWAYS, 2 = NEVER
         alignment: "center",
         parentFont: { name: "Segoe UI", size: 9, style: "bold", color: null },
@@ -543,6 +547,23 @@
 
                     w.gap = createLabeledSpinner(spacingGroup, "Element gap (px):", 2, 40, DEFAULTS.gap, 2);
                     w.padding = createLabeledSpinner(spacingGroup, "Container padding (px):", 4, 40, DEFAULTS.padding, 2);
+                    w.headerHeight = createLabeledSpinner(spacingGroup, "Header height (px):", 20, 80, DEFAULTS.headerHeight, 5);
+                    w.rootGap = createLabeledSpinner(spacingGroup, "Root gap (px):", 5, 80, DEFAULTS.rootGap, 5);
+                    w.viewMargin = createLabeledSpinner(spacingGroup, "View margin (px):", 0, 60, DEFAULTS.viewMargin, 5);
+
+                    // Aspect ratio uses digits=1 so spinner value is x10 (e.g. 16 = 1.6)
+                    var arLabel = new Label(spacingGroup, SWT.NONE);
+                    arLabel.setText("Aspect ratio:");
+                    GridDataFactory.swtDefaults().applyTo(arLabel);
+
+                    w.aspectRatio = new Spinner(spacingGroup, SWT.BORDER);
+                    w.aspectRatio.setDigits(1);
+                    w.aspectRatio.setMinimum(5);   // 0.5
+                    w.aspectRatio.setMaximum(40);  // 4.0
+                    w.aspectRatio.setSelection(Math.round(DEFAULTS.aspectRatio * 10));
+                    w.aspectRatio.setIncrement(1); // 0.1 steps
+                    w.aspectRatio.setPageIncrement(5);
+                    GridDataFactory.fillDefaults().hint(80, SWT.DEFAULT).applyTo(w.aspectRatio);
 
                     // === Display (right) ===
                     var displayGroup = new Group(rightCol, SWT.NONE);
@@ -635,6 +656,10 @@
             leafHeight: w.leafHeight.getSelection(),
             gap: w.gap.getSelection(),
             padding: w.padding.getSelection(),
+            headerHeight: w.headerHeight.getSelection(),
+            rootGap: w.rootGap.getSelection(),
+            viewMargin: w.viewMargin.getSelection(),
+            aspectRatio: w.aspectRatio.getSelection() / 10,
             showIcon: (function () {
                 for (var i = 0; i < w.showIconRadios.length; i++) {
                     if (w.showIconRadios[i].getSelection()) return SHOW_ICON_OPTIONS[i].id;
