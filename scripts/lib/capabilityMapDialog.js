@@ -1,11 +1,11 @@
 /**
  * @module capabilityMapDialog
  * @description SWT dialog for configuring Build Capability Map options.
- * Provides an ExtendedTitleAreaDialog with groups for general settings,
- * leaf sizing, spacing, and per-level color pickers.
- * @version 1.0.0
+ * Provides an ExtendedTitleAreaDialog with a capability tree selector
+ * and groups for general settings, leaf sizing, spacing, and per-level color pickers.
+ * @version 2.0.0
  * @author Thomas Rohde
- * @lastModifiedDate 2026-02-23
+ * @lastModifiedDate 2026-02-24
  */
 (function () {
     "use strict";
@@ -25,6 +25,9 @@
     var Text = swt.Text;
     var Display = swt.Display;
     var Color = swt.Color;
+    var SashForm = swt.SashForm;
+    var Tree = swt.Tree;
+    var TreeItem = swt.TreeItem;
     var GridDataFactory = swt.GridDataFactory;
     var GridLayoutFactory = swt.GridLayoutFactory;
     var IDialogConstants = swt.IDialogConstants;
@@ -182,6 +185,85 @@
     }
 
     // =========================================================================
+    // Tree helpers
+    // =========================================================================
+
+    /**
+     * Recursively populate SWT TreeItems from tree node data.
+     * Each item stores the element ID via setData().
+     * Top-level items are checked by default; children are unchecked.
+     * @param {boolean} isTopLevel - true for root-level items
+     */
+    function populateTreeItems(parentWidget, nodes, getNameFn, isTopLevel) {
+        for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+            var item = new TreeItem(parentWidget, SWT.NONE);
+            item.setText(getNameFn(node.element));
+            item.setData(node.element.id);
+            item.setChecked(isTopLevel);
+            if (node.children && node.children.length > 0) {
+                populateTreeItems(item, node.children, getNameFn, false);
+            }
+        }
+    }
+
+    /**
+     * Set checked state on all items in the tree recursively.
+     */
+    function setAllTreeChecked(tree, checked) {
+        function setRecursive(items) {
+            for (var i = 0; i < items.length; i++) {
+                items[i].setChecked(checked);
+                setRecursive(items[i].getItems());
+            }
+        }
+        setRecursive(tree.getItems());
+    }
+
+    /**
+     * Recursively collect IDs of all checked items in the tree.
+     */
+    function collectCheckedIds(tree) {
+        var ids = [];
+        function walk(items) {
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].getChecked()) {
+                    ids.push("" + items[i].getData());
+                }
+                walk(items[i].getItems());
+            }
+        }
+        walk(tree.getItems());
+        return ids;
+    }
+
+    /**
+     * Check whether any item in the tree is checked.
+     */
+    function hasAnyChecked(tree) {
+        function walk(items) {
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].getChecked()) return true;
+                if (walk(items[i].getItems())) return true;
+            }
+            return false;
+        }
+        return walk(tree.getItems());
+    }
+
+    /**
+     * Convert a JS array to a Java int[] for SashForm.setWeights().
+     */
+    function javaIntArray(arr) {
+        var intArrayType = Java.type("int[]");
+        var result = new intArrayType(arr.length);
+        for (var i = 0; i < arr.length; i++) {
+            result[i] = arr[i];
+        }
+        return result;
+    }
+
+    // =========================================================================
     // Dialog
     // =========================================================================
 
@@ -190,9 +272,11 @@
      * @param {Object} parentShell - Eclipse SWT Shell
      * @param {number} maxDepth - Maximum depth found in the capability tree
      * @param {number} capabilityCount - Total number of capabilities found
-     * @returns {Object|null} Options object, or null if cancelled
+     * @param {Array} trees - Array of root tree nodes (each with .element, .children)
+     * @param {Function} getNameFn - Function to get display name for an element
+     * @returns {Object|null} Options object (with .selectedRootIds), or null if cancelled
      */
-    function showCapabilityMapDialog(parentShell, maxDepth, capabilityCount) {
+    function showCapabilityMapDialog(parentShell, maxDepth, capabilityCount, trees, getNameFn) {
         var result = null;
         var w = {};
         var allocatedColors = [];
@@ -203,11 +287,15 @@
                 configureShell: function (newShell) {
                     Java.super(myDialog.dialog).configureShell(newShell);
                     newShell.setText("Build Capability Map");
-                    newShell.setMinimumSize(750, 400);
+                    newShell.setMinimumSize(950, 400);
                 },
 
                 isResizable: function () {
                     return true;
+                },
+
+                getShellStyle: function () {
+                    return SWT.CLOSE | SWT.TITLE | SWT.BORDER | SWT.APPLICATION_MODAL | SWT.RESIZE | SWT.MAX;
                 },
 
                 createDialogArea: function (parent) {
@@ -216,15 +304,58 @@
                     myDialog.dialog.setTitle("Build Capability Map");
                     myDialog.dialog.setMessage(
                         "Found " + capabilityCount + " capabilities with " +
-                        maxDepth + " level" + (maxDepth !== 1 ? "s" : "") + " of nesting."
+                        maxDepth + " level" + (maxDepth !== 1 ? "s" : "") +
+                        " of nesting. Check any capability to use it as a map root."
                     );
 
-                    // Two-column layout: left (General + Colors), right (Leaf Size + Spacing)
-                    var container = new Composite(area, SWT.NONE);
-                    GridLayoutFactory.fillDefaults().numColumns(2).margins(10, 10).spacing(12, 10).applyTo(container);
-                    GridDataFactory.fillDefaults().grab(true, true).applyTo(container);
+                    // Main horizontal split: tree | config
+                    var sash = new SashForm(area, SWT.HORIZONTAL);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(sash);
 
-                    // --- Left column ---
+                    // --- Left panel: Capability tree ---
+                    var treePanel = new Composite(sash, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(1).margins(10, 10).spacing(0, 6).applyTo(treePanel);
+
+                    var treeLabel = new Label(treePanel, SWT.NONE);
+                    treeLabel.setText("Select capabilities to map:");
+                    GridDataFactory.fillDefaults().applyTo(treeLabel);
+
+                    // Button row
+                    var btnRow = new Composite(treePanel, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(0, 0).spacing(6, 0).applyTo(btnRow);
+                    GridDataFactory.fillDefaults().applyTo(btnRow);
+
+                    var selectAllBtn = new Button(btnRow, SWT.PUSH);
+                    selectAllBtn.setText("Select All");
+                    var deselectAllBtn = new Button(btnRow, SWT.PUSH);
+                    deselectAllBtn.setText("Deselect All");
+
+                    w.capTree = new Tree(treePanel, SWT.BORDER | SWT.CHECK | SWT.V_SCROLL | SWT.H_SCROLL);
+                    GridDataFactory.fillDefaults().grab(true, true).applyTo(w.capTree);
+
+                    // Populate tree — top-level roots checked by default
+                    populateTreeItems(w.capTree, trees, getNameFn, true);
+
+                    // Expand root level so children are visible
+                    var rootItems = w.capTree.getItems();
+                    for (var ri = 0; ri < rootItems.length; ri++) {
+                        rootItems[ri].setExpanded(true);
+                    }
+
+                    selectAllBtn.addSelectionListener({
+                        widgetSelected: function () { setAllTreeChecked(w.capTree, true); },
+                        widgetDefaultSelected: function () {}
+                    });
+                    deselectAllBtn.addSelectionListener({
+                        widgetSelected: function () { setAllTreeChecked(w.capTree, false); },
+                        widgetDefaultSelected: function () {}
+                    });
+
+                    // --- Right panel: Configuration ---
+                    var container = new Composite(sash, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(2).margins(10, 10).spacing(12, 10).applyTo(container);
+
+                    // --- Left config column ---
                     var leftCol = new Composite(container, SWT.NONE);
                     GridLayoutFactory.fillDefaults().numColumns(1).spacing(0, 10).applyTo(leftCol);
                     GridDataFactory.fillDefaults().grab(true, true).align(SWT.FILL, SWT.FILL).applyTo(leftCol);
@@ -272,7 +403,7 @@
                         w.depthColorRows.push(row);
                     }
 
-                    // --- Right column ---
+                    // --- Right config column ---
                     var rightCol = new Composite(container, SWT.NONE);
                     GridLayoutFactory.fillDefaults().numColumns(1).spacing(0, 10).applyTo(rightCol);
                     GridDataFactory.fillDefaults().grab(false, false).align(SWT.FILL, SWT.BEGINNING).applyTo(rightCol);
@@ -304,6 +435,9 @@
 
                     w.showIconCombo = createLabeledCombo(displayGroup, "Show icon:", SHOW_ICON_OPTIONS, DEFAULTS.showIcon);
 
+                    // Set sash proportions
+                    sash.setWeights(javaIntArray([30, 70]));
+
                     return area;
                 },
 
@@ -314,13 +448,16 @@
 
                 getInitialSize: function () {
                     var Point = swt.Point;
-                    // Height: title area (~100) + General group (~110) + Colors group (header + rows) + button bar (~60) + margins
                     var colorRowCount = maxDepth + 2; // levels + leaf
                     var estimatedHeight = 500 + colorRowCount * 45;
-                    return new Point(750, estimatedHeight);
+                    return new Point(1000, estimatedHeight);
                 },
 
                 okPressed: function () {
+                    if (!hasAnyChecked(w.capTree)) {
+                        myDialog.dialog.setErrorMessage("Select at least one capability.");
+                        return;
+                    }
                     result = collectOptions(w);
                     Java.super(myDialog.dialog).okPressed();
                 }
@@ -354,6 +491,9 @@
             depthColors.push(w.depthColorRows[i].hex);
         }
 
+        // Collect all checked item IDs (any level can be a map root)
+        var selectedRootIds = collectCheckedIds(w.capTree);
+
         return {
             viewName: w.viewNameText.getText().trim() || DEFAULTS.viewName,
             maxDepth: maxDepthVal,
@@ -365,7 +505,8 @@
             padding: w.padding.getSelection(),
             showIcon: SHOW_ICON_OPTIONS[w.showIconCombo.getSelectionIndex() >= 0 ? w.showIconCombo.getSelectionIndex() : 0].id,
             leafColor: w.leafColorRow.hex,
-            depthColors: depthColors
+            depthColors: depthColors,
+            selectedRootIds: selectedRootIds
         };
     }
 

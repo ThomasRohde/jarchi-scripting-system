@@ -507,12 +507,39 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
             if (d > treeMaxDepth) treeMaxDepth = d;
         }
 
-        // 7. Show configuration dialog
-        var options = showCapabilityMapDialog(shell, treeMaxDepth, capabilities.size());
+        // 7. Show configuration dialog (with tree selector)
+        var options = showCapabilityMapDialog(shell, treeMaxDepth, capabilities.size(), trees, getName);
         if (!options) {
             log.info("Cancelled by user.");
             return;
         }
+
+        // 7b. Find selected nodes anywhere in the tree hierarchy.
+        // Each checked item becomes a root in the map. If a checked item
+        // is a descendant of another checked item, only the ancestor is used
+        // (its subtree already includes the descendant).
+        var selectedIds = options.selectedRootIds;
+
+        function findSelectedNodes(nodeList) {
+            var found = [];
+            for (var i = 0; i < nodeList.length; i++) {
+                var node = nodeList[i];
+                if (selectedIds.indexOf(node.element.id) >= 0) {
+                    found.push(node);
+                    // Don't recurse — this node's subtree is already included
+                } else if (node.children.length > 0) {
+                    found = found.concat(findSelectedNodes(node.children));
+                }
+            }
+            return found;
+        }
+
+        trees = findSelectedNodes(trees);
+        if (trees.length === 0) {
+            window.alert("No capabilities selected.");
+            return;
+        }
+        log.info("Selected " + trees.length + " capability root" + (trees.length !== 1 ? "s" : "") + " for the map.");
 
         log.info("Options: maxDepth=" + (options.maxDepth === -1 ? "All" : options.maxDepth)
             + ", sort=" + options.sortMode
@@ -675,7 +702,7 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
         // 12. Open the view
         view.openInUI();
 
-        log.success("Build Capability Map complete. " + capabilities.size() + " capabilities in " + roots.length + " root trees.");
+        log.success("Build Capability Map complete. " + trees.length + " root tree" + (trees.length !== 1 ? "s" : "") + " rendered.");
     } catch (error) {
         log.error("Script failed: " + error.toString());
         if (error.stack) log.error(error.stack);
