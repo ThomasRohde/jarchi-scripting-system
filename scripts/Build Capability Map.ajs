@@ -664,22 +664,30 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
                 var y = HEADER_HEIGHT;
                 for (var r = 0; r < node.rows.length; r++) {
                     var row = node.rows[r];
+                    // Align the row horizontally according to the selected option to maximize aesthetic symmetry and balance
+                    var rowOffsetX = 0;
+                    if (options.alignment === "center") {
+                        rowOffsetX = Math.max(0, (node.size.w - 2 * options.padding - row.width) / 2);
+                    } else if (options.alignment === "right") {
+                        rowOffsetX = Math.max(0, node.size.w - 2 * options.padding - row.width);
+                    }
+
                     if (row.placements && row.placements.length > 0) {
                         for (var p = 0; p < row.placements.length; p++) {
                             var placement = row.placements[p];
                             addNode(
                                 placement.item,
                                 diagObj,
-                                options.padding + placement.x,
+                                options.padding + rowOffsetX + placement.x,
                                 y + placement.y,
                                 depth + 1
                             );
                         }
                     } else {
-                        var x = options.padding;
+                        var x = options.padding + rowOffsetX;
                         for (var i = 0; i < row.items.length; i++) {
                             var child = row.items[i];
-                            // Top-align children within their row for tighter packing
+                            // Top-align children within their row
                             var cy = y;
                             addNode(child, diagObj, x, cy, depth + 1);
                             x += child.size.w + options.gap;

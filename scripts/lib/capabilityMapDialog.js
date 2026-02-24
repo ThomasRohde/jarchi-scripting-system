@@ -52,7 +52,8 @@
         leafHeight: 45,
         gap: 8,
         padding: 12,
-        showIcon: 0,            // 0 = IF_NO_IMAGE, 1 = ALWAYS, 2 = NEVER
+        showIcon: 2,            // 1 = ALWAYS, 2 = NEVER
+        alignment: "center",
         leafColor: "#E8E8E8",
         depthColors: [
             "#D6E4F0", // Level 0: light blue
@@ -70,9 +71,14 @@
     ];
 
     var SHOW_ICON_OPTIONS = [
-        { id: 0, label: "If no image" },
         { id: 1, label: "Always" },
         { id: 2, label: "Never" }
+    ];
+
+    var ALIGNMENT_OPTIONS = [
+        { id: "left", label: "Left" },
+        { id: "center", label: "Center" },
+        { id: "right", label: "Right" }
     ];
 
     // =========================================================================
@@ -431,7 +437,24 @@
                     GridLayoutFactory.fillDefaults().numColumns(2).margins(8, 8).spacing(8, 6).applyTo(displayGroup);
                     GridDataFactory.fillDefaults().grab(true, false).applyTo(displayGroup);
 
-                    w.showIconCombo = createLabeledCombo(displayGroup, "Show icon:", SHOW_ICON_OPTIONS, DEFAULTS.showIcon);
+                    var iconLabel = new Label(displayGroup, SWT.NONE);
+                    iconLabel.setText("Show icon:");
+                    GridDataFactory.swtDefaults().applyTo(iconLabel);
+
+                    var iconRadioRow = new Composite(displayGroup, SWT.NONE);
+                    GridLayoutFactory.fillDefaults().numColumns(SHOW_ICON_OPTIONS.length).spacing(12, 0).applyTo(iconRadioRow);
+                    GridDataFactory.fillDefaults().grab(true, false).applyTo(iconRadioRow);
+
+                    w.showIconRadios = [];
+                    for (var si = 0; si < SHOW_ICON_OPTIONS.length; si++) {
+                        var radio = new Button(iconRadioRow, SWT.RADIO);
+                        radio.setText(SHOW_ICON_OPTIONS[si].label);
+                        radio.setSelection(SHOW_ICON_OPTIONS[si].id === DEFAULTS.showIcon);
+                        w.showIconRadios.push(radio);
+                    }
+                    
+                    var defaultAlignIdx = DEFAULTS.alignment === "left" ? 0 : (DEFAULTS.alignment === "right" ? 2 : 1);
+                    w.alignmentCombo = createLabeledCombo(displayGroup, "Row alignment:", ALIGNMENT_OPTIONS, defaultAlignIdx);
 
                     // Set sash proportions
                     sash.setWeights(javaIntArray([40, 60]));
@@ -446,7 +469,7 @@
 
                 getInitialSize: function () {
                     var Point = swt.Point;
-                    return new Point(1450, 900);
+                    return new Point(1500, 900);
                 },
 
                 okPressed: function () {
@@ -499,7 +522,13 @@
             leafHeight: w.leafHeight.getSelection(),
             gap: w.gap.getSelection(),
             padding: w.padding.getSelection(),
-            showIcon: SHOW_ICON_OPTIONS[w.showIconCombo.getSelectionIndex() >= 0 ? w.showIconCombo.getSelectionIndex() : 0].id,
+            showIcon: (function () {
+                for (var i = 0; i < w.showIconRadios.length; i++) {
+                    if (w.showIconRadios[i].getSelection()) return SHOW_ICON_OPTIONS[i].id;
+                }
+                return DEFAULTS.showIcon;
+            })(),
+            alignment: ALIGNMENT_OPTIONS[w.alignmentCombo.getSelectionIndex() >= 0 ? w.alignmentCombo.getSelectionIndex() : 1].id,
             leafColor: w.leafColorRow.hex,
             depthColors: depthColors,
             selectedRootIds: selectedRootIds
