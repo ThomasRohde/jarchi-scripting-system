@@ -25,7 +25,7 @@ load(__DIR__ + "lib/capabilityMapDialog.js");
     // =====================================================================
     // Fixed layout constants (not user-configurable)
     // =====================================================================
-    var HEADER_HEIGHT = 30;
+    var HEADER_HEIGHT = 40;
     var ROOT_GAP = 30;
     var VIEW_MARGIN = 20;
     var TARGET_ASPECT_RATIO = 1.6; // slightly wider than tall

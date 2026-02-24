@@ -434,7 +434,7 @@
                     w.showIconCombo = createLabeledCombo(displayGroup, "Show icon:", SHOW_ICON_OPTIONS, DEFAULTS.showIcon);
 
                     // Set sash proportions
-                    sash.setWeights(javaIntArray([30, 70]));
+                    sash.setWeights(javaIntArray([40, 60]));
 
                     return area;
                 },
@@ -446,7 +446,7 @@
 
                 getInitialSize: function () {
                     var Point = swt.Point;
-                    return new Point(1450, 800);
+                    return new Point(1450, 900);
                 },
 
                 okPressed: function () {
